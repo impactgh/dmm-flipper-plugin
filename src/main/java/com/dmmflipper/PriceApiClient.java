@@ -139,6 +139,10 @@ public class PriceApiClient
 		int filteredByAge = 0;
 		int filteredByProfit = 0;
 		int filteredByBudget = 0;
+		int filteredByROI = 0;
+
+		log.info("Starting opportunity calculation with filters: minProfit={}, minROI={}%, maxROI={}%, maxAge={}min, budget={}",
+			minProfit, minROI, maxROI, maxAgeMinutes, budget);
 
 		for (Map.Entry<Integer, PriceData> entry : latestPrices.entrySet())
 		{
@@ -203,9 +207,21 @@ public class PriceApiClient
 			double roi = (profit / (double) buyPrice) * 100;
 
 			// Filter by thresholds
-			if (profit < minProfit || roi < minROI || roi > maxROI)
+			if (profit < minProfit)
 			{
 				filteredByProfit++;
+				continue;
+			}
+			
+			if (roi < minROI || roi > maxROI)
+			{
+				filteredByROI++;
+				// Log high-value items that are filtered by ROI
+				if (profit > 50000)
+				{
+					log.info("High-profit item filtered by ROI: {} (ID: {}) - Profit: {}, ROI: {:.2f}%, Buy: {}, Sell: {}",
+						itemInfo.getName(), itemId, profit, roi, buyPrice, sellPrice);
+				}
 				continue;
 			}
 
@@ -239,9 +255,22 @@ public class PriceApiClient
 		// Sort by profit
 		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
 
-		log.info("Opportunity calculation: {} total items, {} filtered (no price: {}, age: {}, profit: {}, budget: {}), {} opportunities found",
-			totalItems, filteredByPrice + filteredByAge + filteredByProfit + filteredByBudget,
-			filteredByPrice, filteredByAge, filteredByProfit, filteredByBudget, opps.size());
+		log.info("Opportunity calculation: {} total items, {} filtered (no price: {}, age: {}, profit: {}, ROI: {}, budget: {}), {} opportunities found",
+			totalItems, filteredByPrice + filteredByAge + filteredByProfit + filteredByROI + filteredByBudget,
+			filteredByPrice, filteredByAge, filteredByProfit, filteredByROI, filteredByBudget, opps.size());
+		
+		// Log top 5 opportunities for debugging
+		if (!opps.isEmpty())
+		{
+			log.info("Top 5 opportunities:");
+			for (int i = 0; i < Math.min(5, opps.size()); i++)
+			{
+				FlipOpportunity opp = opps.get(i);
+				log.info("  {}. {} - Profit: {}, ROI: {:.2f}%, Buy: {}, Sell: {}, Limit: {}",
+					i + 1, opp.getItemName(), opp.getProfit(), opp.getRoi(), 
+					opp.getBuyPrice(), opp.getSellPrice(), opp.getLimit());
+			}
+		}
 
 		this.opportunities = opps;
 		return opps;
