@@ -92,10 +92,58 @@ public class PriceApiClient
 	{
 		latestPrices.clear();
 		
+		// Fetch price data from latest (most accurate prices)
 		fetchPricesFromEndpoint(API_BASE + "/latest");
-		fetchPricesFromEndpoint(API_BASE + "/5m");
-		fetchPricesFromEndpoint(API_BASE + "/1h");
-		fetchPricesFromEndpoint(API_BASE + "/24h");
+		private void mergeVolumeData(String endpoint)
+		{
+			Request request = new Request.Builder()
+				.url(endpoint)
+				.header("User-Agent", USER_AGENT)
+				.build();
+
+			try (Response response = httpClient.newCall(request).execute())
+			{
+				if (response.isSuccessful() && response.body() != null)
+				{
+					String json = response.body().string();
+					JsonObject root = gson.fromJson(json, JsonObject.class);
+					JsonObject data = root.getAsJsonObject("data");
+
+					int merged = 0;
+
+					for (String itemIdStr : data.keySet())
+					{
+						int itemId = Integer.parseInt(itemIdStr);
+						JsonObject priceObj = data.getAsJsonObject(itemIdStr);
+
+						// Only merge volume data into existing entries
+						PriceData existing = latestPrices.get(itemId);
+						if (existing != null)
+						{
+							// Merge volume from 24h data
+							int highVol = priceObj.has("highPriceVolume") && !priceObj.get("highPriceVolume").isJsonNull()
+								? priceObj.get("highPriceVolume").getAsInt() : 0;
+							int lowVol = priceObj.has("lowPriceVolume") && !priceObj.get("lowPriceVolume").isJsonNull()
+								? priceObj.get("lowPriceVolume").getAsInt() : 0;
+
+							existing.setHighVolume(highVol);
+							existing.setLowVolume(lowVol);
+							merged++;
+						}
+					}
+
+					log.info("Merged volume data from {}: {} items updated", endpoint, merged);
+				}
+			}
+			catch (Exception e)
+			{
+				log.error("Error merging volume data from " + endpoint, e);
+			}
+		}
+
+		
+		// Merge volume data from 24h (better volume metrics)
+		mergeVolumeData(API_BASE + "/24h");
 		
 		int highValueCount = 0;
 		for (PriceData pd : latestPrices.values())
@@ -341,7 +389,7 @@ public class PriceApiClient
 
 			// Require decent volume for bulk items (from 24h data)
 			int totalVolume = priceData.getLowVolume() + priceData.getHighVolume();
-			if (totalVolume < 100)
+			if (totalVolume < 50)
 			{
 				continue;
 			}
@@ -376,7 +424,7 @@ public class PriceApiClient
 		// Sort by total profit (profit * limit)
 		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
 
-		log.info("Found {} bulk opportunities (min limit: {}, min volume: 100)", opps.size(), minLimit);
+		log.info("Found {} bulk opportunities (min limit: {}, min volume: 50)", opps.size(), minLimit);
 
 		return opps;
 	}
