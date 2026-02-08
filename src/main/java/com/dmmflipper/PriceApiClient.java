@@ -94,53 +94,6 @@ public class PriceApiClient
 		
 		// Fetch price data from latest (most accurate prices)
 		fetchPricesFromEndpoint(API_BASE + "/latest");
-		private void mergeVolumeData(String endpoint)
-		{
-			Request request = new Request.Builder()
-				.url(endpoint)
-				.header("User-Agent", USER_AGENT)
-				.build();
-
-			try (Response response = httpClient.newCall(request).execute())
-			{
-				if (response.isSuccessful() && response.body() != null)
-				{
-					String json = response.body().string();
-					JsonObject root = gson.fromJson(json, JsonObject.class);
-					JsonObject data = root.getAsJsonObject("data");
-
-					int merged = 0;
-
-					for (String itemIdStr : data.keySet())
-					{
-						int itemId = Integer.parseInt(itemIdStr);
-						JsonObject priceObj = data.getAsJsonObject(itemIdStr);
-
-						// Only merge volume data into existing entries
-						PriceData existing = latestPrices.get(itemId);
-						if (existing != null)
-						{
-							// Merge volume from 24h data
-							int highVol = priceObj.has("highPriceVolume") && !priceObj.get("highPriceVolume").isJsonNull()
-								? priceObj.get("highPriceVolume").getAsInt() : 0;
-							int lowVol = priceObj.has("lowPriceVolume") && !priceObj.get("lowPriceVolume").isJsonNull()
-								? priceObj.get("lowPriceVolume").getAsInt() : 0;
-
-							existing.setHighVolume(highVol);
-							existing.setLowVolume(lowVol);
-							merged++;
-						}
-					}
-
-					log.info("Merged volume data from {}: {} items updated", endpoint, merged);
-				}
-			}
-			catch (Exception e)
-			{
-				log.error("Error merging volume data from " + endpoint, e);
-			}
-		}
-
 		
 		// Merge volume data from 24h (better volume metrics)
 		mergeVolumeData(API_BASE + "/24h");
@@ -155,6 +108,53 @@ public class PriceApiClient
 		}
 		
 		log.info("Loaded {} items ({} over 1M)", latestPrices.size(), highValueCount);
+	}
+
+	private void mergeVolumeData(String endpoint)
+	{
+		Request request = new Request.Builder()
+			.url(endpoint)
+			.header("User-Agent", USER_AGENT)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (response.isSuccessful() && response.body() != null)
+			{
+				String json = response.body().string();
+				JsonObject root = gson.fromJson(json, JsonObject.class);
+				JsonObject data = root.getAsJsonObject("data");
+
+				int merged = 0;
+
+				for (String itemIdStr : data.keySet())
+				{
+					int itemId = Integer.parseInt(itemIdStr);
+					JsonObject priceObj = data.getAsJsonObject(itemIdStr);
+
+					// Only merge volume data into existing entries
+					PriceData existing = latestPrices.get(itemId);
+					if (existing != null)
+					{
+						// Merge volume from 24h data
+						int highVol = priceObj.has("highPriceVolume") && !priceObj.get("highPriceVolume").isJsonNull()
+							? priceObj.get("highPriceVolume").getAsInt() : 0;
+						int lowVol = priceObj.has("lowPriceVolume") && !priceObj.get("lowPriceVolume").isJsonNull()
+							? priceObj.get("lowPriceVolume").getAsInt() : 0;
+
+						existing.setHighVolume(highVol);
+						existing.setLowVolume(lowVol);
+						merged++;
+					}
+				}
+
+				log.info("Merged volume data from {}: {} items updated", endpoint, merged);
+			}
+		}
+		catch (Exception e)
+		{
+			log.error("Error merging volume data from " + endpoint, e);
+		}
 	}
 
 	private void fetchPricesFromEndpoint(String endpoint)
