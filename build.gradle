@@ -33,12 +33,11 @@ tasks.withType(JavaCompile) {
 }
 
 tasks.register('run', JavaExec) { JavaExec it ->
-	classpath = sourceSets.test.runtimeClasspath
+	dependsOn build
+	
+	classpath = sourceSets.main.runtimeClasspath
 	mainClass = 'net.runelite.client.RuneLite'
 	
-	jvmArgs '-ea'
+	jvmArgs '-ea', '-Drunelite.pluginhub.skip=true'
 	args '--developer-mode', '--debug'
-	
-	// Tell RuneLite to load plugins from the classpath
-	systemProperty 'runelite.pluginhub.skip', 'true'
 }
