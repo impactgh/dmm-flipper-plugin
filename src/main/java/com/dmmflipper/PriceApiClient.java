@@ -139,6 +139,9 @@ public class PriceApiClient
 				boolean loggedSample = false;
 				int highValueCount = 0;
 				
+				// Determine if this is a time-series endpoint (5m, 1h) or instant (latest)
+				boolean isTimeSeries = endpoint.contains("/5m") || endpoint.contains("/1h");
+				
 				for (String itemIdStr : data.keySet())
 				{
 					int itemId = Integer.parseInt(itemIdStr);
@@ -152,12 +155,30 @@ public class PriceApiClient
 					}
 					
 					PriceData priceData = new PriceData();
-					priceData.setHigh(priceObj.has("high") ? priceObj.get("high").getAsInt() : 0);
-					priceData.setLow(priceObj.has("low") ? priceObj.get("low").getAsInt() : 0);
-					priceData.setHighTime(priceObj.has("highTime") ? priceObj.get("highTime").getAsLong() : 0);
-					priceData.setLowTime(priceObj.has("lowTime") ? priceObj.get("lowTime").getAsLong() : 0);
-					priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
-					priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
+					
+					// Different field names for different endpoints
+					if (isTimeSeries)
+					{
+						// 5m and 1h endpoints use avgHighPrice/avgLowPrice
+						priceData.setHigh(priceObj.has("avgHighPrice") ? priceObj.get("avgHighPrice").getAsInt() : 0);
+						priceData.setLow(priceObj.has("avgLowPrice") ? priceObj.get("avgLowPrice").getAsInt() : 0);
+						// Use current time as timestamp for time-series data since they don't have specific timestamps
+						long currentTime = System.currentTimeMillis() / 1000;
+						priceData.setHighTime(currentTime);
+						priceData.setLowTime(currentTime);
+						priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
+						priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
+					}
+					else
+					{
+						// /latest endpoint uses high/low
+						priceData.setHigh(priceObj.has("high") ? priceObj.get("high").getAsInt() : 0);
+						priceData.setLow(priceObj.has("low") ? priceObj.get("low").getAsInt() : 0);
+						priceData.setHighTime(priceObj.has("highTime") ? priceObj.get("highTime").getAsLong() : 0);
+						priceData.setLowTime(priceObj.has("lowTime") ? priceObj.get("lowTime").getAsLong() : 0);
+						priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
+						priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
+					}
 
 					// Count high-value items in this endpoint
 					if (priceData.getHigh() > 1000000)
@@ -183,23 +204,32 @@ public class PriceApiClient
 					}
 					else
 					{
-						// Update if this data is more recent
-						long existingNewest = Math.max(existing.getHighTime(), existing.getLowTime());
-						long newNewest = Math.max(priceData.getHighTime(), priceData.getLowTime());
-						
-						if (newNewest > existingNewest)
+						// For time-series data, prefer /latest data (more precise timestamps)
+						// Only update if this is /latest or if we don't have data yet
+						if (!isTimeSeries)
 						{
+							// This is /latest data - always prefer it
 							latestPrices.put(itemId, priceData);
 							updatedItems++;
 						}
 						else
 						{
-							skippedOlder++;
+							// This is time-series data - only use if we don't have /latest data
+							// Check if existing data has real timestamps (from /latest)
+							if (existing.getHighTime() == 0 && existing.getLowTime() == 0)
+							{
+								latestPrices.put(itemId, priceData);
+								updatedItems++;
+							}
+							else
+							{
+								skippedOlder++;
+							}
 						}
 					}
 				}
 
-				log.info("Loaded from {}: {} new, {} updated, {} skipped (older), {} total items, {} items >1M in this endpoint",
+				log.info("Loaded from {}: {} new, {} updated, {} skipped, {} total items, {} items >1M in this endpoint",
 					endpoint, newItems, updatedItems, skippedOlder, latestPrices.size(), highValueCount);
 			}
 		}
