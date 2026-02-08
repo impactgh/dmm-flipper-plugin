@@ -23,7 +23,6 @@ public class DMMFlipperPanel extends PluginPanel
 	private final JPanel opportunitiesPanel;
 	private final JPanel activeFlippingPanel;
 	private final JPanel bulkOpportunitiesPanel;
-	private final JPanel overnightFlippingPanel;
 	private final JPanel offersPanel;
 	private final JPanel statsPanel;
 	private final JButton refreshButton;
@@ -97,23 +96,14 @@ public class DMMFlipperPanel extends PluginPanel
 		activeFlippingScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		tabbedPane.addTab("Active Flip", activeFlippingScroll);
 
-		// Bulk Volume tab
+		// Overnight Flipping tab (renamed from Bulk Volume)
 		bulkOpportunitiesPanel = new JPanel();
 		bulkOpportunitiesPanel.setLayout(new BoxLayout(bulkOpportunitiesPanel, BoxLayout.Y_AXIS));
 		bulkOpportunitiesPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		
 		JScrollPane bulkOpportunitiesScroll = new JScrollPane(bulkOpportunitiesPanel);
 		bulkOpportunitiesScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Bulk Volume", bulkOpportunitiesScroll);
-
-		// Overnight Flipping tab
-		overnightFlippingPanel = new JPanel();
-		overnightFlippingPanel.setLayout(new BoxLayout(overnightFlippingPanel, BoxLayout.Y_AXIS));
-		overnightFlippingPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		
-		JScrollPane overnightFlippingScroll = new JScrollPane(overnightFlippingPanel);
-		overnightFlippingScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Overnight Flip", overnightFlippingScroll);
+		tabbedPane.addTab("Overnight Flip", bulkOpportunitiesScroll);
 
 		// Active offers tab
 		offersPanel = new JPanel();
@@ -173,69 +163,12 @@ public class DMMFlipperPanel extends PluginPanel
 					config.budget(),
 					1000
 				);
-				
-				List<FlipOpportunity> overnightOpportunities = priceApiClient.calculateOvernightOpportunities(
-					config.minProfit(),
-					config.minROI(),
-					config.maxROI(),
-					config.maxAge(),
-					config.budget()
-				);
 
 				SwingUtilities.invokeLater(() -> {
 					updateOpportunitiesDisplay(opportunities);
 					updateActiveFlippingDisplay(activeFlippingOpportunities);
 					updateBulkOpportunitiesDisplay(bulkOpportunities);
-					updateOvernightFlippingDisplay(overnightOpportunities);
 					updateOfferDisplay();
-					private JPanel createOvernightFlippingPanel(FlipOpportunity opp)
-					{
-						JPanel panel = new JPanel();
-						panel.setLayout(new BorderLayout());
-						panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-						panel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-						JPanel infoPanel = new JPanel(new GridLayout(4, 1));
-						infoPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-
-						JLabel nameLabel = new JLabel(truncateName(opp.getItemName(), 25));
-						nameLabel.setForeground(Color.WHITE);
-						nameLabel.setFont(new Font("Arial", Font.BOLD, 12));
-
-						// Calculate per-item profit from overnight total (divide by estimated cycles)
-						int totalVolume = opp.getBuyVolume() + opp.getSellVolume();
-						int estimatedCycles = totalVolume > 500 ? 3 : 2;
-						int perItemProfit = opp.getProfit() / (opp.getLimit() * estimatedCycles);
-
-						JLabel profitLabel = new JLabel(String.format("12h Total: %s gp (%s ea × %dx)",
-							QuantityFormatter.formatNumber(opp.getProfit()),
-							QuantityFormatter.formatNumber(perItemProfit),
-							estimatedCycles));
-						profitLabel.setForeground(Color.GREEN);
-
-						JLabel priceLabel = new JLabel(String.format("Buy: %s → Sell: %s",
-							QuantityFormatter.formatNumber(opp.getBuyPrice()),
-							QuantityFormatter.formatNumber(opp.getSellPrice())));
-						priceLabel.setForeground(Color.CYAN);
-
-						JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | Vol: %s",
-							QuantityFormatter.formatNumber(opp.getLimit()),
-							opp.getRoi(),
-							QuantityFormatter.formatNumber(totalVolume)));
-						detailLabel.setForeground(Color.LIGHT_GRAY);
-						detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
-
-						infoPanel.add(nameLabel);
-						infoPanel.add(profitLabel);
-						infoPanel.add(priceLabel);
-						infoPanel.add(detailLabel);
-
-						panel.add(infoPanel, BorderLayout.CENTER);
-
-						return panel;
-					}
-
-					public void updateOfferDisplay()
 					updateStatsDisplay();
 					updateProfitLabels();
 					refreshButton.setEnabled(true);
@@ -271,32 +204,6 @@ public class DMMFlipperPanel extends PluginPanel
 			{
 				FlipOpportunity opp = opportunities.get(i);
 				opportunitiesPanel.add(createOpportunityPanel(opp));
-				private void updateOvernightFlippingDisplay(List<FlipOpportunity> opportunities)
-				{
-					overnightFlippingPanel.removeAll();
-
-					if (opportunities.isEmpty())
-					{
-						JLabel noDataLabel = new JLabel("No overnight flipping opportunities found.");
-						noDataLabel.setForeground(Color.LIGHT_GRAY);
-						noDataLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
-						overnightFlippingPanel.add(noDataLabel);
-					}
-					else
-					{
-						int count = Math.min(20, opportunities.size());
-						for (int i = 0; i < count; i++)
-						{
-							FlipOpportunity opp = opportunities.get(i);
-							overnightFlippingPanel.add(createOvernightFlippingPanel(opp));
-						}
-					}
-
-					overnightFlippingPanel.revalidate();
-					overnightFlippingPanel.repaint();
-				}
-
-				private JPanel createOpportunityPanel(FlipOpportunity opp)
 			}
 		}
 
@@ -335,7 +242,7 @@ public class DMMFlipperPanel extends PluginPanel
 
 		if (opportunities.isEmpty())
 		{
-			JLabel noDataLabel = new JLabel("No bulk opportunities found.");
+			JLabel noDataLabel = new JLabel("No overnight flipping opportunities found.");
 			noDataLabel.setForeground(Color.LIGHT_GRAY);
 			noDataLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
 			bulkOpportunitiesPanel.add(noDataLabel);
@@ -454,10 +361,10 @@ public class DMMFlipperPanel extends PluginPanel
 		nameLabel.setForeground(Color.WHITE);
 		nameLabel.setFont(new Font("Arial", Font.BOLD, 12));
 
-		int perItemProfit = opp.getProfit() / opp.getLimit();
-		JLabel profitLabel = new JLabel(String.format("Total: %s gp (%s ea)", 
+		int totalVolume = opp.getBuyVolume() + opp.getSellVolume();
+		JLabel profitLabel = new JLabel(String.format("Margin: %s gp | Vol: %s", 
 			QuantityFormatter.formatNumber(opp.getProfit()),
-			QuantityFormatter.formatNumber(perItemProfit)));
+			QuantityFormatter.formatNumber(totalVolume)));
 		profitLabel.setForeground(Color.GREEN);
 
 		JLabel priceLabel = new JLabel(String.format("Buy: %s → Sell: %s", 
@@ -626,20 +533,6 @@ public class DMMFlipperPanel extends PluginPanel
 
 		sessionProfitLabel.setText(String.format("Session: %s gp", QuantityFormatter.formatNumber(sessionProfit)));
 		totalProfitLabel.setText(String.format("Total: %s gp", QuantityFormatter.formatNumber(totalProfit)));
-	}
-
-	private void addDetailLabel(JPanel panel, String label, String value)
-	{
-		JLabel keyLabel = new JLabel(label);
-		keyLabel.setForeground(Color.LIGHT_GRAY);
-		keyLabel.setFont(new Font("Arial", Font.PLAIN, 11));
-
-		JLabel valueLabel = new JLabel(value);
-		valueLabel.setForeground(Color.WHITE);
-		valueLabel.setFont(new Font("Arial", Font.PLAIN, 11));
-
-		panel.add(keyLabel);
-		panel.add(valueLabel);
 	}
 
 	private String truncateName(String name, int maxLength)
