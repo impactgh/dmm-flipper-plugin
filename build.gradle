@@ -38,4 +38,7 @@ tasks.register('run', JavaExec) { JavaExec it ->
 	
 	jvmArgs '-ea'
 	args '--developer-mode', '--debug'
+	
+	// Tell RuneLite to load plugins from the classpath
+	systemProperty 'runelite.pluginhub.skip', 'true'
 }
