@@ -171,10 +171,27 @@ public class PriceApiClient
 			int buyAgeMinutes = (int) ((currentTime - buyTime) / 60);
 			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
 			
+			// Get item info for logging
+			ItemInfo itemInfo = itemMapping.get(itemId);
+			String itemName = itemInfo != null ? itemInfo.getName() : "Unknown";
+			
+			// Log Vesta's longsword specifically
+			if (itemName.toLowerCase().contains("vesta"))
+			{
+				log.info("Found Vesta item: {} (ID: {}) - Buy: {}, Sell: {}, BuyAge: {}m, SellAge: {}m, BuyTime: {}, SellTime: {}, CurrentTime: {}",
+					itemName, itemId, priceData.getLow(), priceData.getHigh(), 
+					buyAgeMinutes, sellAgeMinutes, buyTime, sellTime, currentTime);
+			}
+			
 			// Skip if either buy or sell is too old
 			if (buyAgeMinutes > maxAgeMinutes || sellAgeMinutes > maxAgeMinutes)
 			{
 				filteredByAge++;
+				if (itemName.toLowerCase().contains("vesta"))
+				{
+					log.info("Vesta item FILTERED by age: buyAge={}m, sellAge={}m, maxAge={}m", 
+						buyAgeMinutes, sellAgeMinutes, maxAgeMinutes);
+				}
 				continue;
 			}
 			
@@ -182,8 +199,7 @@ public class PriceApiClient
 			long latestTime = Math.max(buyTime, sellTime);
 			int ageMinutes = (int) ((currentTime - latestTime) / 60);
 
-			// Get item info
-			ItemInfo itemInfo = itemMapping.get(itemId);
+			// Get item info (already fetched above for logging)
 			if (itemInfo == null)
 			{
 				continue;
