@@ -287,7 +287,7 @@ public class DMMFlipperPanel extends PluginPanel
 		JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | Age: %dm",
 			QuantityFormatter.formatNumber(opp.getLimit()),
 			opp.getRoi(),
-			opp.getAge()));
+			opp.getAgeMinutes()));
 		detailLabel.setForeground(Color.LIGHT_GRAY);
 		detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
 
@@ -315,7 +315,7 @@ public class DMMFlipperPanel extends PluginPanel
 		nameLabel.setForeground(Color.WHITE);
 		nameLabel.setFont(new Font("Arial", Font.BOLD, 12));
 
-		int totalVolume = opp.getLowVolume() + opp.getHighVolume();
+		int totalVolume = opp.getBuyVolume() + opp.getSellVolume();
 		JLabel profitLabel = new JLabel(String.format("Margin: %s gp | Vol: %s", 
 			QuantityFormatter.formatNumber(opp.getProfit()),
 			QuantityFormatter.formatNumber(totalVolume)));
@@ -326,14 +326,14 @@ public class DMMFlipperPanel extends PluginPanel
 			QuantityFormatter.formatNumber(opp.getSellPrice())));
 		priceLabel.setForeground(Color.CYAN);
 
-		String freshness = opp.getAge() < 2 ? "FRESH" : opp.getAge() < 5 ? "Recent" : "Old";
-		Color freshnessColor = opp.getAge() < 2 ? Color.GREEN : opp.getAge() < 5 ? Color.YELLOW : Color.ORANGE;
+		String freshness = opp.getAgeMinutes() < 2 ? "FRESH" : opp.getAgeMinutes() < 5 ? "Recent" : "Old";
+		Color freshnessColor = opp.getAgeMinutes() < 2 ? Color.GREEN : opp.getAgeMinutes() < 5 ? Color.YELLOW : Color.ORANGE;
 		
 		JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | %s (%dm)",
 			QuantityFormatter.formatNumber(opp.getLimit()),
 			opp.getRoi(),
 			freshness,
-			opp.getAge()));
+			opp.getAgeMinutes()));
 		detailLabel.setForeground(freshnessColor);
 		detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
 
@@ -375,7 +375,7 @@ public class DMMFlipperPanel extends PluginPanel
 		JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | Age: %dm",
 			QuantityFormatter.formatNumber(opp.getLimit()),
 			opp.getRoi(),
-			opp.getAge()));
+			opp.getAgeMinutes()));
 		detailLabel.setForeground(Color.LIGHT_GRAY);
 		detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
 
@@ -463,9 +463,13 @@ public class DMMFlipperPanel extends PluginPanel
 	{
 		statsPanel.removeAll();
 
-		List<FlipHistory.CompletedFlip> flips = flipHistory.getCompletedFlips();
+		List<FlipHistory.CompletedFlip> allFlips = new ArrayList<>();
+		for (List<FlipHistory.CompletedFlip> flips : flipHistory.getCompletedFlips().values())
+		{
+			allFlips.addAll(flips);
+		}
 
-		if (flips.isEmpty())
+		if (allFlips.isEmpty())
 		{
 			JLabel noDataLabel = new JLabel("No completed flips yet");
 			noDataLabel.setForeground(Color.LIGHT_GRAY);
@@ -474,10 +478,12 @@ public class DMMFlipperPanel extends PluginPanel
 		}
 		else
 		{
-			int count = Math.min(20, flips.size());
-			for (int i = flips.size() - 1; i >= flips.size() - count; i--)
+			allFlips.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+			
+			int count = Math.min(20, allFlips.size());
+			for (int i = 0; i < count; i++)
 			{
-				FlipHistory.CompletedFlip flip = flips.get(i);
+				FlipHistory.CompletedFlip flip = allFlips.get(i);
 				statsPanel.add(createFlipPanel(flip));
 			}
 		}
