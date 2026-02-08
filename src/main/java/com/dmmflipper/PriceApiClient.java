@@ -90,7 +90,8 @@ public class PriceApiClient
 
 	public void fetchLatestPrices()
 	{
-		// Don't clear - merge data from multiple endpoints
+		// Clear old data before fetching fresh data
+		latestPrices.clear();
 		
 		// Try multiple endpoints to get more coverage
 		log.info("Fetching prices from multiple endpoints...");
@@ -113,6 +114,8 @@ public class PriceApiClient
 
 	private void fetchPricesFromEndpoint(String endpoint)
 	{
+		log.info("Starting fetch from: {}", endpoint);
+		
 		Request request = new Request.Builder()
 			.url(endpoint)
 			.header("User-Agent", USER_AGENT)
@@ -120,9 +123,12 @@ public class PriceApiClient
 
 		try (Response response = httpClient.newCall(request).execute())
 		{
+			log.info("Response from {}: success={}, hasBody={}", endpoint, response.isSuccessful(), response.body() != null);
+			
 			if (response.isSuccessful() && response.body() != null)
 			{
 				String json = response.body().string();
+				log.info("JSON length from {}: {} chars", endpoint, json.length());
 				
 				// Log first 500 chars to see structure (only for /latest to avoid spam)
 				if (endpoint.contains("latest"))
@@ -132,6 +138,8 @@ public class PriceApiClient
 				
 				JsonObject root = gson.fromJson(json, JsonObject.class);
 				JsonObject data = root.getAsJsonObject("data");
+				
+				log.info("Parsed JSON from {}, data object has {} items", endpoint, data.size());
 
 				int newItems = 0;
 				int updatedItems = 0;
@@ -236,6 +244,10 @@ public class PriceApiClient
 		catch (IOException e)
 		{
 			log.error("Error fetching prices from " + endpoint, e);
+		}
+		catch (Exception e)
+		{
+			log.error("Unexpected error fetching prices from " + endpoint, e);
 		}
 	}
 
