@@ -11,7 +11,6 @@ repositories {
 }
 
 def runeLiteVersion = 'latest.release'
-def pluginMainClass = 'com.dmmflipper.DMMFlipperPlugin'
 
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
@@ -25,20 +24,21 @@ dependencies {
 }
 
 group = 'com.dmmflipper'
-version = '1.0.0'
-sourceCompatibility = '11'
+version = '1.0-SNAPSHOT'
 
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
 }
+
+def pluginMainClass = 'com.dmmflipper.DMMFlipperPluginTest'
 
 tasks.register('run', JavaExec) { JavaExec it ->
 	group = 'runelite'
 	description = 'Run the RuneLite client with this plugin'
 	
 	classpath = sourceSets.test.runtimeClasspath
-	mainClass = 'net.runelite.client.RuneLite'
+	mainClass = pluginMainClass
 	
-	jvmArgs '-ea', '-Drunelite.pluginhub.skip=true'
+	jvmArgs '-ea'
 	args '--developer-mode', '--debug'
 }
