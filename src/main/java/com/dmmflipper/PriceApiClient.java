@@ -299,7 +299,7 @@ public class PriceApiClient
 				if (profit > 50000)
 				{
 					log.info("High-profit item filtered by ROI: {} (ID: {}) - Profit: {}, ROI: {:.2f}%, Buy: {}, Sell: {}",
-						itemInfo.getName(), itemId, profit, roi, buyPrice, sellPrice);
+						itemInfo.getName(), itemId, profit, String.format("%.2f", roi), buyPrice, sellPrice);
 				}
 				continue;
 			}
@@ -351,8 +351,8 @@ public class PriceApiClient
 			for (int i = 0; i < Math.min(5, opps.size()); i++)
 			{
 				FlipOpportunity opp = opps.get(i);
-				log.info("  {}. {} - Profit: {}, ROI: {:.2f}%, Buy: {}, Sell: {}, Limit: {}",
-					i + 1, opp.getItemName(), opp.getProfit(), opp.getRoi(), 
+				log.info("  {}. {} - Profit: {}, ROI: {}%, Buy: {}, Sell: {}, Limit: {}",
+					i + 1, opp.getItemName(), opp.getProfit(), String.format("%.2f", opp.getRoi()), 
 					opp.getBuyPrice(), opp.getSellPrice(), opp.getLimit());
 			}
 		}
