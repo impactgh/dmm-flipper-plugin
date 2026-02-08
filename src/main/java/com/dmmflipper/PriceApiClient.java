@@ -171,6 +171,15 @@ public class PriceApiClient
 						log.info("High-value item from {}: {} (ID: {}) - Buy: {}, Sell: {}", 
 							endpoint, itemInfo.getName(), itemId, priceData.getLow(), priceData.getHigh());
 					}
+					
+					// Specifically log Vesta's longsword (ID: 22613)
+					if (itemId == 22613)
+					{
+						String name = itemInfo != null ? itemInfo.getName() : "Unknown";
+						log.info("FOUND Vesta's longsword from {}: {} (ID: 22613) - Buy: {}, Sell: {}, BuyTime: {}, SellTime: {}",
+							endpoint, name, priceData.getLow(), priceData.getHigh(), 
+							priceData.getLowTime(), priceData.getHighTime());
+					}
 				}
 
 				log.info("Loaded from {}: {} new items, {} updated items, {} total", 
@@ -300,6 +309,12 @@ public class PriceApiClient
 			if (buyPrice * limit > budget && buyPrice > budget)
 			{
 				filteredByBudget++;
+				// Log high-value items filtered by budget
+				if (profit > 50000 || itemName.toLowerCase().contains("vesta"))
+				{
+					log.info("High-profit item filtered by budget: {} (ID: {}) - Profit: {}, Buy: {}, Budget: {}, Limit: {}",
+						itemInfo.getName(), itemId, profit, buyPrice, budget, limit);
+				}
 				continue;
 			}
 
