@@ -90,8 +90,7 @@ public class PriceApiClient
 
 	public void fetchLatestPrices()
 	{
-		// Clear before fetching fresh data
-		latestPrices.clear();
+		// Don't clear - merge data from multiple endpoints
 		
 		// Try both latest and 5m endpoints to get more coverage
 		fetchPricesFromEndpoint(API_BASE + "/latest");
@@ -113,7 +112,7 @@ public class PriceApiClient
 			{
 				String json = response.body().string();
 				
-				// Log first item to see structure
+				// Log first 500 chars to see structure
 				if (endpoint.contains("latest"))
 				{
 					log.info("Sample API response (first 500 chars): {}", json.substring(0, Math.min(500, json.length())));
@@ -125,6 +124,7 @@ public class PriceApiClient
 				int newItems = 0;
 				int updatedItems = 0;
 				boolean loggedSample = false;
+				int highValueCount = 0;
 				
 				for (String itemIdStr : data.keySet())
 				{
@@ -146,6 +146,12 @@ public class PriceApiClient
 					priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
 					priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
 
+					// Count high-value items
+					if (priceData.getHigh() > 1000000)
+					{
+						highValueCount++;
+					}
+
 					// Only add/update if we don't have this item or if this data is newer
 					PriceData existing = latestPrices.get(itemId);
 					if (existing == null)
@@ -163,27 +169,10 @@ public class PriceApiClient
 							updatedItems++;
 						}
 					}
-					
-					// Log high-value items
-					ItemInfo itemInfo = itemMapping.get(itemId);
-					if (itemInfo != null && priceData.getHigh() > 2000000)
-					{
-						log.info("High-value item from {}: {} (ID: {}) - Buy: {}, Sell: {}", 
-							endpoint, itemInfo.getName(), itemId, priceData.getLow(), priceData.getHigh());
-					}
-					
-					// Specifically log Vesta's longsword (ID: 22613)
-					if (itemId == 22613)
-					{
-						String name = itemInfo != null ? itemInfo.getName() : "Unknown";
-						log.info("FOUND Vesta's longsword from {}: {} (ID: 22613) - Buy: {}, Sell: {}, BuyTime: {}, SellTime: {}",
-							endpoint, name, priceData.getLow(), priceData.getHigh(), 
-							priceData.getLowTime(), priceData.getHighTime());
-					}
 				}
 
-				log.info("Loaded from {}: {} new items, {} updated items, {} total", 
-					endpoint, newItems, updatedItems, latestPrices.size());
+				log.info("Loaded from {}: {} new items, {} updated items, {} total, {} items >1M",
+					endpoint, newItems, updatedItems, latestPrices.size(), highValueCount);
 			}
 		}
 		catch (IOException e)
@@ -206,6 +195,17 @@ public class PriceApiClient
 
 		log.info("Starting opportunity calculation with filters: minProfit={}, minROI={}%, maxROI={}%, maxAge={}min, budget={}",
 			minProfit, minROI, maxROI, maxAgeMinutes, budget);
+		
+		// Count high-value items in price data
+		int highValueInPrices = 0;
+		for (PriceData pd : latestPrices.values())
+		{
+			if (pd.getHigh() > 1000000)
+			{
+				highValueInPrices++;
+			}
+		}
+		log.info("Price data contains {} items with sell price >1M", highValueInPrices);
 
 		for (Map.Entry<Integer, PriceData> entry : latestPrices.entrySet())
 		{
@@ -238,22 +238,21 @@ public class PriceApiClient
 			ItemInfo itemInfo = itemMapping.get(itemId);
 			String itemName = itemInfo != null ? itemInfo.getName() : "Unknown";
 			
-			// Log Vesta's longsword specifically
-			if (itemName.toLowerCase().contains("vesta"))
+			// Log expensive items to debug
+			if (priceData.getHigh() > 1000000)
 			{
-				log.info("Found Vesta item: {} (ID: {}) - Buy: {}, Sell: {}, BuyAge: {}m, SellAge: {}m, BuyTime: {}, SellTime: {}, CurrentTime: {}",
-					itemName, itemId, priceData.getLow(), priceData.getHigh(), 
-					buyAgeMinutes, sellAgeMinutes, buyTime, sellTime, currentTime);
+				log.info("Processing expensive item: {} (ID: {}) - Buy: {}, Sell: {}, BuyAge: {}m, SellAge: {}m",
+					itemName, itemId, priceData.getLow(), priceData.getHigh(), buyAgeMinutes, sellAgeMinutes);
 			}
 			
 			// Skip if either buy or sell is too old
 			if (buyAgeMinutes > maxAgeMinutes || sellAgeMinutes > maxAgeMinutes)
 			{
 				filteredByAge++;
-				if (itemName.toLowerCase().contains("vesta"))
+				if (priceData.getHigh() > 1000000)
 				{
-					log.info("Vesta item FILTERED by age: buyAge={}m, sellAge={}m, maxAge={}m", 
-						buyAgeMinutes, sellAgeMinutes, maxAgeMinutes);
+					log.info("Expensive item FILTERED by age: {} - buyAge={}m, sellAge={}m, maxAge={}m", 
+						itemName, buyAgeMinutes, sellAgeMinutes, maxAgeMinutes);
 				}
 				continue;
 			}
@@ -295,11 +294,11 @@ public class PriceApiClient
 			if (roi < minROI || roi > maxROI)
 			{
 				filteredByROI++;
-				// Log high-value items that are filtered by ROI
-				if (profit > 50000)
+				// Log expensive items that are filtered by ROI
+				if (priceData.getHigh() > 1000000)
 				{
-					log.info("High-profit item filtered by ROI: {} (ID: {}) - Profit: {}, ROI: {:.2f}%, Buy: {}, Sell: {}",
-						itemInfo.getName(), itemId, profit, String.format("%.2f", roi), buyPrice, sellPrice);
+					log.info("Expensive item filtered by ROI: {} (ID: {}) - Profit: {}, ROI: {}%, Buy: {}, Sell: {}, minROI: {}%, maxROI: {}%",
+						itemInfo.getName(), itemId, profit, String.format("%.2f", roi), buyPrice, sellPrice, minROI, maxROI);
 				}
 				continue;
 			}
@@ -309,11 +308,11 @@ public class PriceApiClient
 			if (buyPrice * limit > budget && buyPrice > budget)
 			{
 				filteredByBudget++;
-				// Log high-value items filtered by budget
-				if (profit > 50000 || itemName.toLowerCase().contains("vesta"))
+				// Log expensive items filtered by budget
+				if (priceData.getHigh() > 1000000)
 				{
-					log.info("High-profit item filtered by budget: {} (ID: {}) - Profit: {}, Buy: {}, Budget: {}, Limit: {}",
-						itemInfo.getName(), itemId, profit, buyPrice, budget, limit);
+					log.info("Expensive item filtered by budget: {} (ID: {}) - Profit: {}, Buy: {}, Budget: {}, Limit: {}, BuyPrice*Limit: {}",
+						itemInfo.getName(), itemId, profit, buyPrice, budget, limit, (buyPrice * limit));
 				}
 				continue;
 			}
