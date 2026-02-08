@@ -229,6 +229,12 @@ public class PriceApiClient
 		}
 	}
 
+	/**
+	 * Best Margin Tab: Optimized for high-ROI, high-margin flips
+	 * Strategy: Focus on items with best profit per item, regardless of volume
+	 * Target: Experienced flippers looking for maximum profit per flip
+	 * Sorting: By absolute profit (margin), then by ROI as tiebreaker
+	 */
 	public List<FlipOpportunity> calculateOpportunities(int minProfit, int minROI, int maxROI, int maxAgeMinutes, int budget)
 	{
 		List<FlipOpportunity> opps = new ArrayList<>();
@@ -255,7 +261,7 @@ public class PriceApiClient
 			int buyAgeMinutes = (int) ((currentTime - buyTime) / 60);
 			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
 
-			// Strict age filter for Best Margin tab
+			// Strict age filter for Best Margin tab - we want fresh data
 			if (buyAgeMinutes > maxAgeMinutes || sellAgeMinutes > maxAgeMinutes)
 			{
 				continue;
@@ -312,13 +318,25 @@ public class PriceApiClient
 			opps.add(opp);
 		}
 
-		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
+		// Sort by profit (margin), then by ROI for tiebreaker
+		opps.sort((a, b) -> {
+			int profitCompare = Integer.compare(b.getProfit(), a.getProfit());
+			if (profitCompare != 0) return profitCompare;
+			return Double.compare(b.getRoi(), a.getRoi());
+		});
 
 		log.info("Found {} best margin opportunities", opps.size());
 
 		this.opportunities = opps;
 		return opps;
 	}
+	/**
+	 * Bulk Volume Tab: Optimized for high-volume items with large buy limits
+	 * Strategy: Focus on total profit potential (margin × limit) with confirmed volume
+	 * Target: Flippers who want to maximize profit per 4-hour cycle
+	 * Sorting: By total profit potential (profit × limit)
+	 * Key filters: High buy limits (1000+), confirmed 24h volume (50+)
+	 */
 	public List<FlipOpportunity> calculateBulkOpportunities(int minProfit, int minROI, int maxROI, int maxAgeMinutes, int budget, int minLimit)
 	{
 		List<FlipOpportunity> opps = new ArrayList<>();
@@ -345,7 +363,7 @@ public class PriceApiClient
 			int buyAgeMinutes = (int) ((currentTime - buyTime) / 60);
 			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
 
-			// Relaxed age filter for bulk items (they trade less frequently)
+			// Relaxed age filter for bulk items (they trade less frequently but in larger quantities)
 			int bulkMaxAge = Math.max(maxAgeMinutes, 60);
 
 			if (buyAgeMinutes > bulkMaxAge || sellAgeMinutes > bulkMaxAge)
@@ -367,6 +385,7 @@ public class PriceApiClient
 			int geTax = Math.min((int) (sellPrice * 0.01), 5_000_000);
 			int profit = sellPrice - buyPrice - geTax;
 
+			// For bulk, we care about per-item profit first
 			if (profit <= 0)
 			{
 				continue;
@@ -388,6 +407,7 @@ public class PriceApiClient
 			}
 
 			// Require decent volume for bulk items (from 24h data)
+			// This confirms the item actually trades in volume
 			int totalVolume = priceData.getLowVolume() + priceData.getHighVolume();
 			if (totalVolume < 50)
 			{
@@ -407,7 +427,7 @@ public class PriceApiClient
 				itemInfo.getName(),
 				buyPrice,
 				sellPrice,
-				totalProfit,
+				totalProfit,  // Store total profit for sorting
 				roi,
 				geTax,
 				limit,
@@ -421,13 +441,21 @@ public class PriceApiClient
 			opps.add(opp);
 		}
 
-		// Sort by total profit (profit * limit)
+		// Sort by total profit potential (profit × limit)
+		// This shows items where you can make the most GP per 4-hour cycle
 		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
 
 		log.info("Found {} bulk opportunities (min limit: {}, min volume: 50)", opps.size(), minLimit);
 
 		return opps;
 	}
+	/**
+	 * Active Flipping Tab: Optimized for fast-turnover, high-frequency trading
+	 * Strategy: Focus on cheap items (<25k) with very recent prices and confirmed volume
+	 * Target: Active traders who want quick flips with minimal wait time
+	 * Sorting: By profit-to-volume ratio (efficiency), then by absolute margin
+	 * Key filters: Max 5min age, must have volume, affordable items
+	 */
 	public List<FlipOpportunity> calculateActiveFlippingOpportunities(int minProfit, int maxPrice, int maxAgeMinutes, int budget)
 	{
 		List<FlipOpportunity> opps = new ArrayList<>();
@@ -455,6 +483,7 @@ public class PriceApiClient
 			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
 
 			// Active flipping needs VERY recent prices (max 5 minutes)
+			// Fresh data = active market = fast turnover
 			int activeMaxAge = Math.min(maxAgeMinutes, 5);
 
 			if (buyAgeMinutes > activeMaxAge || sellAgeMinutes > activeMaxAge)
@@ -471,13 +500,13 @@ public class PriceApiClient
 			int buyPrice = priceData.getLow();
 			int sellPrice = priceData.getHigh();
 
-			// Filter by max price (for active flipping, focus on cheaper items)
+			// Filter by max price (for active flipping, focus on cheaper items for fast turnover)
 			if (buyPrice > maxPrice)
 			{
 				continue;
 			}
 
-			// Filter out items with no volume data
+			// Filter out items with no volume data - we need confirmed trading activity
 			int totalVolume = priceData.getLowVolume() + priceData.getHighVolume();
 			if (totalVolume == 0)
 			{
@@ -525,8 +554,25 @@ public class PriceApiClient
 			opps.add(opp);
 		}
 
-		// Sort by margin (profit) - highest margin first
-		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
+		// Sort by efficiency: items with best margin relative to volume
+		// This prioritizes items that will flip quickly with good profit
+		// Primary: profit-to-volume ratio (higher = better efficiency)
+		// Secondary: absolute margin (tiebreaker)
+		opps.sort((a, b) -> {
+			int volA = a.getBuyVolume() + a.getSellVolume();
+			int volB = b.getBuyVolume() + b.getSellVolume();
+
+			// Calculate efficiency score: profit weighted by volume
+			// Higher volume = more likely to sell quickly
+			double efficiencyA = volA > 0 ? (double) a.getProfit() * Math.log(volA + 1) : 0;
+			double efficiencyB = volB > 0 ? (double) b.getProfit() * Math.log(volB + 1) : 0;
+
+			int efficiencyCompare = Double.compare(efficiencyB, efficiencyA);
+			if (efficiencyCompare != 0) return efficiencyCompare;
+
+			// Tiebreaker: absolute margin
+			return Integer.compare(b.getProfit(), a.getProfit());
+		});
 
 		log.info("Found {} active flipping opportunities", opps.size());
 
