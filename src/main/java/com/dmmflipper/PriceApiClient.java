@@ -95,6 +95,7 @@ public class PriceApiClient
 		fetchPricesFromEndpoint(API_BASE + "/latest");
 		fetchPricesFromEndpoint(API_BASE + "/5m");
 		fetchPricesFromEndpoint(API_BASE + "/1h");
+		fetchPricesFromEndpoint(API_BASE + "/24h");
 		
 		int highValueCount = 0;
 		for (PriceData pd : latestPrices.values())
@@ -185,12 +186,6 @@ public class PriceApiClient
 		List<FlipOpportunity> opps = new ArrayList<>();
 		long currentTime = System.currentTimeMillis() / 1000;
 
-		int filteredByPrice = 0;
-		int filteredByAge = 0;
-		int filteredByProfit = 0;
-		int filteredByBudget = 0;
-		int filteredByROI = 0;
-
 		for (Map.Entry<Integer, PriceData> entry : latestPrices.entrySet())
 		{
 			int itemId = entry.getKey();
@@ -198,7 +193,6 @@ public class PriceApiClient
 
 			if (priceData.getHigh() == 0 || priceData.getLow() == 0)
 			{
-				filteredByPrice++;
 				continue;
 			}
 
@@ -207,24 +201,21 @@ public class PriceApiClient
 
 			if (buyTime == 0 || sellTime == 0)
 			{
-				filteredByAge++;
 				continue;
 			}
 
 			int buyAgeMinutes = (int) ((currentTime - buyTime) / 60);
 			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
 
-			ItemInfo itemInfo = itemMapping.get(itemId);
-			if (itemInfo == null)
+			// Strict age filter for Best Margin tab
+			if (buyAgeMinutes > maxAgeMinutes || sellAgeMinutes > maxAgeMinutes)
 			{
 				continue;
 			}
 
-			int effectiveMaxAge = priceData.getHigh() > 1000000 ? Math.max(maxAgeMinutes, 240) : maxAgeMinutes;
-
-			if (buyAgeMinutes > effectiveMaxAge || sellAgeMinutes > effectiveMaxAge)
+			ItemInfo itemInfo = itemMapping.get(itemId);
+			if (itemInfo == null)
 			{
-				filteredByAge++;
 				continue;
 			}
 
@@ -243,22 +234,14 @@ public class PriceApiClient
 
 			double roi = (profit / (double) buyPrice) * 100;
 
-			if (profit < minProfit)
+			if (profit < minProfit || roi < minROI || roi > maxROI)
 			{
-				filteredByProfit++;
-				continue;
-			}
-
-			if (roi < minROI || roi > maxROI)
-			{
-				filteredByROI++;
 				continue;
 			}
 
 			int limit = itemInfo.getLimit() > 0 ? itemInfo.getLimit() : 1;
 			if (buyPrice * limit > budget && buyPrice > budget)
 			{
-				filteredByBudget++;
 				continue;
 			}
 
@@ -283,8 +266,7 @@ public class PriceApiClient
 
 		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
 
-		log.info("Found {} opportunities ({} filtered)", opps.size(), 
-			filteredByPrice + filteredByAge + filteredByProfit + filteredByROI + filteredByBudget);
+		log.info("Found {} best margin opportunities", opps.size());
 
 		this.opportunities = opps;
 		return opps;
@@ -315,15 +297,16 @@ public class PriceApiClient
 			int buyAgeMinutes = (int) ((currentTime - buyTime) / 60);
 			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
 
-			ItemInfo itemInfo = itemMapping.get(itemId);
-			if (itemInfo == null)
+			// Relaxed age filter for bulk items (they trade less frequently)
+			int bulkMaxAge = Math.max(maxAgeMinutes, 60);
+
+			if (buyAgeMinutes > bulkMaxAge || sellAgeMinutes > bulkMaxAge)
 			{
 				continue;
 			}
 
-			int effectiveMaxAge = priceData.getHigh() > 1000000 ? Math.max(maxAgeMinutes, 240) : maxAgeMinutes;
-
-			if (buyAgeMinutes > effectiveMaxAge || sellAgeMinutes > effectiveMaxAge)
+			ItemInfo itemInfo = itemMapping.get(itemId);
+			if (itemInfo == null)
 			{
 				continue;
 			}
@@ -356,6 +339,13 @@ public class PriceApiClient
 				continue;
 			}
 
+			// Require decent volume for bulk items (from 24h data)
+			int totalVolume = priceData.getLowVolume() + priceData.getHighVolume();
+			if (totalVolume < 100)
+			{
+				continue;
+			}
+
 			if (buyPrice * limit > budget && buyPrice > budget)
 			{
 				continue;
@@ -369,7 +359,7 @@ public class PriceApiClient
 				itemInfo.getName(),
 				buyPrice,
 				sellPrice,
-				totalProfit,  // Use total profit for bulk
+				totalProfit,
 				roi,
 				geTax,
 				limit,
@@ -386,7 +376,7 @@ public class PriceApiClient
 		// Sort by total profit (profit * limit)
 		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
 
-		log.info("Found {} bulk opportunities (min limit: {})", opps.size(), minLimit);
+		log.info("Found {} bulk opportunities (min limit: {}, min volume: 100)", opps.size(), minLimit);
 
 		return opps;
 	}
@@ -439,6 +429,13 @@ public class PriceApiClient
 				continue;
 			}
 
+			// Filter out items with no volume data
+			int totalVolume = priceData.getLowVolume() + priceData.getHighVolume();
+			if (totalVolume == 0)
+			{
+				continue;
+			}
+
 			int geTax = Math.min((int) (sellPrice * 0.01), 5_000_000);
 			int profit = sellPrice - buyPrice - geTax;
 
@@ -457,16 +454,6 @@ public class PriceApiClient
 			{
 				continue;
 			}
-
-			// Calculate volume score (higher is better)
-			int volumeScore = priceData.getLowVolume() + priceData.getHighVolume();
-
-			// Calculate turnover rate (how fast it trades)
-			// Items with recent trades and good volume get priority
-			int ageScore = Math.max(0, 300 - (buyAgeMinutes + sellAgeMinutes)); // Max 300 points
-
-			// Total score for sorting
-			int totalScore = volumeScore + (ageScore * 100);
 
 			long latestTime = Math.max(buyTime, sellTime);
 			int ageMinutes = (int) ((currentTime - latestTime) / 60);
