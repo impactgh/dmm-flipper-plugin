@@ -92,11 +92,23 @@ public class PriceApiClient
 	{
 		// Don't clear - merge data from multiple endpoints
 		
-		// Try both latest and 5m endpoints to get more coverage
+		// Try multiple endpoints to get more coverage
+		log.info("Fetching prices from multiple endpoints...");
 		fetchPricesFromEndpoint(API_BASE + "/latest");
 		fetchPricesFromEndpoint(API_BASE + "/5m");
+		fetchPricesFromEndpoint(API_BASE + "/1h");
 		
-		log.info("Total items after fetching all endpoints: {}", latestPrices.size());
+		// Count high-value items after all fetches
+		int highValueCount = 0;
+		for (PriceData pd : latestPrices.values())
+		{
+			if (pd.getHigh() > 1000000)
+			{
+				highValueCount++;
+			}
+		}
+		
+		log.info("Total items after fetching all endpoints: {}, items >1M: {}", latestPrices.size(), highValueCount);
 	}
 
 	private void fetchPricesFromEndpoint(String endpoint)
@@ -112,7 +124,7 @@ public class PriceApiClient
 			{
 				String json = response.body().string();
 				
-				// Log first 500 chars to see structure
+				// Log first 500 chars to see structure (only for /latest to avoid spam)
 				if (endpoint.contains("latest"))
 				{
 					log.info("Sample API response (first 500 chars): {}", json.substring(0, Math.min(500, json.length())));
@@ -123,6 +135,7 @@ public class PriceApiClient
 
 				int newItems = 0;
 				int updatedItems = 0;
+				int skippedOlder = 0;
 				boolean loggedSample = false;
 				int highValueCount = 0;
 				
@@ -131,7 +144,7 @@ public class PriceApiClient
 					int itemId = Integer.parseInt(itemIdStr);
 					JsonObject priceObj = data.getAsJsonObject(itemIdStr);
 					
-					// Log first item structure
+					// Log first item structure (only for /latest)
 					if (!loggedSample && endpoint.contains("latest"))
 					{
 						log.info("Sample item data for ID {}: {}", itemId, priceObj.toString());
@@ -146,10 +159,19 @@ public class PriceApiClient
 					priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
 					priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
 
-					// Count high-value items
+					// Count high-value items in this endpoint
 					if (priceData.getHigh() > 1000000)
 					{
 						highValueCount++;
+						// Log the first few high-value items
+						ItemInfo itemInfo = itemMapping.get(itemId);
+						String name = itemInfo != null ? itemInfo.getName() : "Unknown";
+						if (highValueCount <= 5)
+						{
+							log.info("High-value item from {}: {} (ID: {}) - Buy: {}, Sell: {}, BuyTime: {}, SellTime: {}",
+								endpoint, name, itemId, priceData.getLow(), priceData.getHigh(),
+								priceData.getLowTime(), priceData.getHighTime());
+						}
 					}
 
 					// Only add/update if we don't have this item or if this data is newer
@@ -162,17 +184,23 @@ public class PriceApiClient
 					else
 					{
 						// Update if this data is more recent
-						if (priceData.getHighTime() > existing.getHighTime() || 
-							priceData.getLowTime() > existing.getLowTime())
+						long existingNewest = Math.max(existing.getHighTime(), existing.getLowTime());
+						long newNewest = Math.max(priceData.getHighTime(), priceData.getLowTime());
+						
+						if (newNewest > existingNewest)
 						{
 							latestPrices.put(itemId, priceData);
 							updatedItems++;
 						}
+						else
+						{
+							skippedOlder++;
+						}
 					}
 				}
 
-				log.info("Loaded from {}: {} new items, {} updated items, {} total, {} items >1M",
-					endpoint, newItems, updatedItems, latestPrices.size(), highValueCount);
+				log.info("Loaded from {}: {} new, {} updated, {} skipped (older), {} total items, {} items >1M in this endpoint",
+					endpoint, newItems, updatedItems, skippedOlder, latestPrices.size(), highValueCount);
 			}
 		}
 		catch (IOException e)
