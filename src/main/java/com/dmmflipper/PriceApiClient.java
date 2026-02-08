@@ -525,19 +525,8 @@ public class PriceApiClient
 			opps.add(opp);
 		}
 
-		// Sort by volume and recency (items that trade fast)
-		opps.sort((a, b) -> {
-			int volumeA = a.getBuyVolume() + a.getSellVolume();
-			int volumeB = b.getBuyVolume() + b.getSellVolume();
-
-			// If volumes are similar, prefer items with better margins
-			if (Math.abs(volumeA - volumeB) < 100)
-			{
-				return Integer.compare(b.getProfit(), a.getProfit());
-			}
-
-			return Integer.compare(volumeB, volumeA);
-		});
+		// Sort by margin (profit) - highest margin first
+		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
 
 		log.info("Found {} active flipping opportunities", opps.size());
 
