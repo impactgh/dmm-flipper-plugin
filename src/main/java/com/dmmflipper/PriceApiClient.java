@@ -36,9 +36,11 @@ public class PriceApiClient
 
 	public void startPriceUpdates()
 	{
-		// Initial fetch
-		fetchItemMapping();
-		fetchLatestPrices();
+		// Fetch data in background thread
+		executor.execute(() -> {
+			fetchItemMapping();
+			fetchLatestPrices();
+		});
 
 		// Schedule periodic updates (every 60 seconds)
 		updateTask = executor.scheduleAtFixedRate(
