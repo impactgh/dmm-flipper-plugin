@@ -133,15 +133,23 @@ public class PriceApiClient
 	{
 		List<FlipOpportunity> opps = new ArrayList<>();
 		long currentTime = System.currentTimeMillis() / 1000;
+		
+		int totalItems = 0;
+		int filteredByPrice = 0;
+		int filteredByAge = 0;
+		int filteredByProfit = 0;
+		int filteredByBudget = 0;
 
 		for (Map.Entry<Integer, PriceData> entry : latestPrices.entrySet())
 		{
 			int itemId = entry.getKey();
 			PriceData priceData = entry.getValue();
+			totalItems++;
 
 			// Skip if no prices
 			if (priceData.getHigh() == 0 || priceData.getLow() == 0)
 			{
+				filteredByPrice++;
 				continue;
 			}
 
@@ -152,6 +160,7 @@ public class PriceApiClient
 			// Skip if either timestamp is missing
 			if (buyTime == 0 || sellTime == 0)
 			{
+				filteredByAge++;
 				continue;
 			}
 			
@@ -161,6 +170,7 @@ public class PriceApiClient
 			// Skip if either buy or sell is too old
 			if (buyAgeMinutes > maxAgeMinutes || sellAgeMinutes > maxAgeMinutes)
 			{
+				filteredByAge++;
 				continue;
 			}
 			
@@ -195,6 +205,7 @@ public class PriceApiClient
 			// Filter by thresholds
 			if (profit < minProfit || roi < minROI || roi > maxROI)
 			{
+				filteredByProfit++;
 				continue;
 			}
 
@@ -202,6 +213,7 @@ public class PriceApiClient
 			int limit = itemInfo.getLimit() > 0 ? itemInfo.getLimit() : 1;
 			if (buyPrice * limit > budget && buyPrice > budget)
 			{
+				filteredByBudget++;
 				continue;
 			}
 
@@ -226,6 +238,10 @@ public class PriceApiClient
 
 		// Sort by profit
 		opps.sort((a, b) -> Integer.compare(b.getProfit(), a.getProfit()));
+
+		log.info("Opportunity calculation: {} total items, {} filtered (no price: {}, age: {}, profit: {}, budget: {}), {} opportunities found",
+			totalItems, filteredByPrice + filteredByAge + filteredByProfit + filteredByBudget,
+			filteredByPrice, filteredByAge, filteredByProfit, filteredByBudget, opps.size());
 
 		this.opportunities = opps;
 		return opps;
