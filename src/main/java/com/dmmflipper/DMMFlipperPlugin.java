@@ -59,7 +59,9 @@ public class DMMFlipperPlugin extends Plugin
 		}
 		catch (Exception e)
 		{
-			log.warn("Could not load icon, using default");
+			log.warn("Could not load icon: {}", e.getMessage());
+			// Create a simple default icon if loading fails
+			icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
 		}
 		
 		navButton = NavigationButton.builder()
