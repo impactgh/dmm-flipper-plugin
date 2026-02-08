@@ -48,7 +48,7 @@ public interface DMMFlipperConfig extends Config
 	@Range(min = 5, max = 120)
 	default int maxAge()
 	{
-		return 30;
+		return 15;
 	}
 
 	@ConfigItem(

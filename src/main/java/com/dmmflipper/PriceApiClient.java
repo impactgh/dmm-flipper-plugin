@@ -145,14 +145,28 @@ public class PriceApiClient
 				continue;
 			}
 
-			// Check age
-			long latestTime = Math.max(priceData.getHighTime(), priceData.getLowTime());
-			int ageMinutes = (int) ((currentTime - latestTime) / 60);
+			// Check age - both buy and sell must be recent
+			long buyTime = priceData.getLowTime();
+			long sellTime = priceData.getHighTime();
 			
-			if (ageMinutes > maxAgeMinutes)
+			// Skip if either timestamp is missing
+			if (buyTime == 0 || sellTime == 0)
 			{
 				continue;
 			}
+			
+			int buyAgeMinutes = (int) ((currentTime - buyTime) / 60);
+			int sellAgeMinutes = (int) ((currentTime - sellTime) / 60);
+			
+			// Skip if either buy or sell is too old
+			if (buyAgeMinutes > maxAgeMinutes || sellAgeMinutes > maxAgeMinutes)
+			{
+				continue;
+			}
+			
+			// Use the most recent for display
+			long latestTime = Math.max(buyTime, sellTime);
+			int ageMinutes = (int) ((currentTime - latestTime) / 60);
 
 			// Get item info
 			ItemInfo itemInfo = itemMapping.get(itemId);
