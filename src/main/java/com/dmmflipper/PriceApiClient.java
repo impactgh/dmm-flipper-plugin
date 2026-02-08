@@ -90,8 +90,15 @@ public class PriceApiClient
 
 	public void fetchLatestPrices()
 	{
+		// Try both latest and 5m endpoints to get more coverage
+		fetchPricesFromEndpoint(API_BASE + "/latest");
+		fetchPricesFromEndpoint(API_BASE + "/5m");
+	}
+
+	private void fetchPricesFromEndpoint(String endpoint)
+	{
 		Request request = new Request.Builder()
-			.url(API_BASE + "/latest")
+			.url(endpoint)
 			.header("User-Agent", USER_AGENT)
 			.build();
 
@@ -103,7 +110,9 @@ public class PriceApiClient
 				JsonObject root = gson.fromJson(json, JsonObject.class);
 				JsonObject data = root.getAsJsonObject("data");
 
-				latestPrices.clear();
+				int newItems = 0;
+				int updatedItems = 0;
+				
 				for (String itemIdStr : data.keySet())
 				{
 					int itemId = Integer.parseInt(itemIdStr);
@@ -117,23 +126,40 @@ public class PriceApiClient
 					priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
 					priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
 
-					latestPrices.put(itemId, priceData);
+					// Only add/update if we don't have this item or if this data is newer
+					PriceData existing = latestPrices.get(itemId);
+					if (existing == null)
+					{
+						latestPrices.put(itemId, priceData);
+						newItems++;
+					}
+					else
+					{
+						// Update if this data is more recent
+						if (priceData.getHighTime() > existing.getHighTime() || 
+							priceData.getLowTime() > existing.getLowTime())
+						{
+							latestPrices.put(itemId, priceData);
+							updatedItems++;
+						}
+					}
 					
 					// Log high-value items
 					ItemInfo itemInfo = itemMapping.get(itemId);
 					if (itemInfo != null && priceData.getHigh() > 2000000)
 					{
-						log.info("High-value item loaded: {} (ID: {}) - Buy: {}, Sell: {}", 
-							itemInfo.getName(), itemId, priceData.getLow(), priceData.getHigh());
+						log.info("High-value item from {}: {} (ID: {}) - Buy: {}, Sell: {}", 
+							endpoint, itemInfo.getName(), itemId, priceData.getLow(), priceData.getHigh());
 					}
 				}
 
-				log.info("Loaded prices for {} items", latestPrices.size());
+				log.info("Loaded from {}: {} new items, {} updated items, {} total", 
+					endpoint, newItems, updatedItems, latestPrices.size());
 			}
 		}
 		catch (IOException e)
 		{
-			log.error("Error fetching latest prices", e);
+			log.error("Error fetching prices from " + endpoint, e);
 		}
 	}
 
