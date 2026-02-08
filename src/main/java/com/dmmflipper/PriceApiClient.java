@@ -90,9 +90,14 @@ public class PriceApiClient
 
 	public void fetchLatestPrices()
 	{
+		// Clear before fetching fresh data
+		latestPrices.clear();
+		
 		// Try both latest and 5m endpoints to get more coverage
 		fetchPricesFromEndpoint(API_BASE + "/latest");
 		fetchPricesFromEndpoint(API_BASE + "/5m");
+		
+		log.info("Total items after fetching all endpoints: {}", latestPrices.size());
 	}
 
 	private void fetchPricesFromEndpoint(String endpoint)
@@ -107,16 +112,31 @@ public class PriceApiClient
 			if (response.isSuccessful() && response.body() != null)
 			{
 				String json = response.body().string();
+				
+				// Log first item to see structure
+				if (endpoint.contains("latest"))
+				{
+					log.info("Sample API response (first 500 chars): {}", json.substring(0, Math.min(500, json.length())));
+				}
+				
 				JsonObject root = gson.fromJson(json, JsonObject.class);
 				JsonObject data = root.getAsJsonObject("data");
 
 				int newItems = 0;
 				int updatedItems = 0;
+				boolean loggedSample = false;
 				
 				for (String itemIdStr : data.keySet())
 				{
 					int itemId = Integer.parseInt(itemIdStr);
 					JsonObject priceObj = data.getAsJsonObject(itemIdStr);
+					
+					// Log first item structure
+					if (!loggedSample && endpoint.contains("latest"))
+					{
+						log.info("Sample item data for ID {}: {}", itemId, priceObj.toString());
+						loggedSample = true;
+					}
 					
 					PriceData priceData = new PriceData();
 					priceData.setHigh(priceObj.has("high") ? priceObj.get("high").getAsInt() : 0);
