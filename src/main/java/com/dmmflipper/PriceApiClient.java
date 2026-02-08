@@ -118,6 +118,14 @@ public class PriceApiClient
 					priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
 
 					latestPrices.put(itemId, priceData);
+					
+					// Log high-value items
+					ItemInfo itemInfo = itemMapping.get(itemId);
+					if (itemInfo != null && priceData.getHigh() > 2000000)
+					{
+						log.info("High-value item loaded: {} (ID: {}) - Buy: {}, Sell: {}", 
+							itemInfo.getName(), itemId, priceData.getLow(), priceData.getHigh());
+					}
 				}
 
 				log.info("Loaded prices for {} items", latestPrices.size());
