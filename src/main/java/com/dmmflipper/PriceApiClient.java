@@ -168,24 +168,36 @@ public class PriceApiClient
 					if (isTimeSeries)
 					{
 						// 5m and 1h endpoints use avgHighPrice/avgLowPrice
-						priceData.setHigh(priceObj.has("avgHighPrice") ? priceObj.get("avgHighPrice").getAsInt() : 0);
-						priceData.setLow(priceObj.has("avgLowPrice") ? priceObj.get("avgLowPrice").getAsInt() : 0);
+						// Handle null values properly
+						priceData.setHigh(priceObj.has("avgHighPrice") && !priceObj.get("avgHighPrice").isJsonNull() 
+							? priceObj.get("avgHighPrice").getAsInt() : 0);
+						priceData.setLow(priceObj.has("avgLowPrice") && !priceObj.get("avgLowPrice").isJsonNull() 
+							? priceObj.get("avgLowPrice").getAsInt() : 0);
 						// Use current time as timestamp for time-series data since they don't have specific timestamps
 						long currentTime = System.currentTimeMillis() / 1000;
 						priceData.setHighTime(currentTime);
 						priceData.setLowTime(currentTime);
-						priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
-						priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
+						priceData.setHighVolume(priceObj.has("highPriceVolume") && !priceObj.get("highPriceVolume").isJsonNull() 
+							? priceObj.get("highPriceVolume").getAsInt() : 0);
+						priceData.setLowVolume(priceObj.has("lowPriceVolume") && !priceObj.get("lowPriceVolume").isJsonNull() 
+							? priceObj.get("lowPriceVolume").getAsInt() : 0);
 					}
 					else
 					{
 						// /latest endpoint uses high/low
-						priceData.setHigh(priceObj.has("high") ? priceObj.get("high").getAsInt() : 0);
-						priceData.setLow(priceObj.has("low") ? priceObj.get("low").getAsInt() : 0);
-						priceData.setHighTime(priceObj.has("highTime") ? priceObj.get("highTime").getAsLong() : 0);
-						priceData.setLowTime(priceObj.has("lowTime") ? priceObj.get("lowTime").getAsLong() : 0);
-						priceData.setHighVolume(priceObj.has("highPriceVolume") ? priceObj.get("highPriceVolume").getAsInt() : 0);
-						priceData.setLowVolume(priceObj.has("lowPriceVolume") ? priceObj.get("lowPriceVolume").getAsInt() : 0);
+						// Handle null values properly
+						priceData.setHigh(priceObj.has("high") && !priceObj.get("high").isJsonNull() 
+							? priceObj.get("high").getAsInt() : 0);
+						priceData.setLow(priceObj.has("low") && !priceObj.get("low").isJsonNull() 
+							? priceObj.get("low").getAsInt() : 0);
+						priceData.setHighTime(priceObj.has("highTime") && !priceObj.get("highTime").isJsonNull() 
+							? priceObj.get("highTime").getAsLong() : 0);
+						priceData.setLowTime(priceObj.has("lowTime") && !priceObj.get("lowTime").isJsonNull() 
+							? priceObj.get("lowTime").getAsLong() : 0);
+						priceData.setHighVolume(priceObj.has("highPriceVolume") && !priceObj.get("highPriceVolume").isJsonNull() 
+							? priceObj.get("highPriceVolume").getAsInt() : 0);
+						priceData.setLowVolume(priceObj.has("lowPriceVolume") && !priceObj.get("lowPriceVolume").isJsonNull() 
+							? priceObj.get("lowPriceVolume").getAsInt() : 0);
 					}
 
 					// Count high-value items in this endpoint
