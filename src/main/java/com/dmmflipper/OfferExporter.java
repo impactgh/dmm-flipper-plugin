@@ -21,6 +21,17 @@ public class OfferExporter
 	private static final String EXPORT_DIR = System.getProperty("user.home") + "/.runelite/dmm-flipper";
 	private static final String EXPORT_FILE = EXPORT_DIR + "/offers.json";
 	
+	// Alternative: Use environment variable for custom path (for Docker/container setups)
+	// Set RUNELITE_EXPORT_DIR environment variable in RuneLite launcher
+	private static String getExportDir() {
+		String customDir = System.getenv("RUNELITE_EXPORT_DIR");
+		return customDir != null ? customDir : EXPORT_DIR;
+	}
+	
+	private static String getExportFile() {
+		return getExportDir() + "/offers.json";
+	}
+	
 	private final Gson gson;
 	private final GEOfferTracker offerTracker;
 	private final PriceApiClient priceApiClient;
@@ -34,11 +45,11 @@ public class OfferExporter
 		// Ensure export directory exists
 		try
 		{
-			Path exportPath = Paths.get(EXPORT_DIR);
+			Path exportPath = Paths.get(getExportDir());
 			if (!Files.exists(exportPath))
 			{
 				Files.createDirectories(exportPath);
-				log.info("Created export directory: {}", EXPORT_DIR);
+				log.info("Created export directory: {}", getExportDir());
 			}
 		}
 		catch (IOException e)
@@ -82,11 +93,11 @@ public class OfferExporter
 			exportData.put("offers", offersData);
 			
 			// Write to file
-			File exportFile = new File(EXPORT_FILE);
+			File exportFile = new File(getExportFile());
 			try (FileWriter writer = new FileWriter(exportFile))
 			{
 				gson.toJson(exportData, writer);
-				log.debug("Exported {} offers to {}", offersData.size(), EXPORT_FILE);
+				log.debug("Exported {} offers to {}", offersData.size(), getExportFile());
 			}
 		}
 		catch (IOException e)
@@ -97,6 +108,6 @@ public class OfferExporter
 	
 	public String getExportPath()
 	{
-		return EXPORT_FILE;
+		return getExportFile();
 	}
 }
