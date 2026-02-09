@@ -42,11 +42,16 @@ public class DMMFlipperPlugin extends Plugin
 
 	private DMMFlipperPanel panel;
 	private NavigationButton navButton;
+	private OfferExporter offerExporter;
 
 	@Override
 	protected void startUp() throws Exception
 	{
 		log.info("DMM Flipper started!");
+
+		// Initialize offer exporter
+		offerExporter = new OfferExporter(geOfferTracker, priceApiClient);
+		log.info("Exporting GE offers to: {}", offerExporter.getExportPath());
 
 		// Create the panel
 		panel = new DMMFlipperPanel(this, priceApiClient, geOfferTracker, flipHistory, config);
@@ -92,6 +97,12 @@ public class DMMFlipperPlugin extends Plugin
 		geOfferTracker.updateOffer(event);
 		panel.updateOfferDisplay();
 		panel.updateProfitLabels();
+		
+		// Export offers for webapp
+		if (offerExporter != null)
+		{
+			offerExporter.exportOffers();
+		}
 	}
 
 	@Provides
