@@ -18,18 +18,22 @@ import java.util.Map;
 @Slf4j
 public class OfferExporter
 {
-	private static final String EXPORT_DIR = System.getProperty("user.home") + "/.runelite/dmm-flipper";
-	private static final String EXPORT_FILE = EXPORT_DIR + "/offers.json";
+	// For container setup - hardcode the WSL path
+	private static final String EXPORT_DIR = "\\\\wsl$\\docker-desktop\\mnt\\docker-desktop-disk\\data\\docker\\volumes\\coder-92acce1f-5a2b-400f-adc3-02bcc0d05833-home\\_data\\.runelite\\dmm-flipper";
+	private static final String EXPORT_FILE = EXPORT_DIR + "\\offers.json";
 	
-	// Alternative: Use environment variable for custom path (for Docker/container setups)
-	// Set RUNELITE_EXPORT_DIR environment variable in RuneLite launcher
+	// Fallback to default if WSL path doesn't exist
 	private static String getExportDir() {
-		String customDir = System.getenv("RUNELITE_EXPORT_DIR");
-		return customDir != null ? customDir : EXPORT_DIR;
+		File wslDir = new File(EXPORT_DIR);
+		if (wslDir.exists() || wslDir.mkdirs()) {
+			return EXPORT_DIR;
+		}
+		// Fallback to default user home
+		return System.getProperty("user.home") + "\\.runelite\\dmm-flipper";
 	}
 	
 	private static String getExportFile() {
-		return getExportDir() + "/offers.json";
+		return getExportDir() + "\\offers.json";
 	}
 	
 	private final Gson gson;
