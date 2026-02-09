@@ -15,29 +15,23 @@ import java.util.List;
 public class DMMFlipperPanel extends PluginPanel
 {
 	private final DMMFlipperPlugin plugin;
-	private final PriceApiClient priceApiClient;
 	private final GEOfferTracker geOfferTracker;
 	private final FlipHistory flipHistory;
-	private final DMMFlipperConfig config;
+	private final PriceApiClient priceApiClient;
 
-	private final JPanel opportunitiesPanel;
-	private final JPanel activeFlippingPanel;
-	private final JPanel bulkOpportunitiesPanel;
 	private final JPanel offersPanel;
-	private final JPanel statsPanel;
 	private final JButton refreshButton;
 	private final JLabel sessionProfitLabel;
 	private final JLabel totalProfitLabel;
 
 	public DMMFlipperPanel(DMMFlipperPlugin plugin, PriceApiClient priceApiClient, 
-						   GEOfferTracker geOfferTracker, FlipHistory flipHistory, DMMFlipperConfig config)
+						   GEOfferTracker geOfferTracker, FlipHistory flipHistory)
 	{
 		super(false);
 		this.plugin = plugin;
 		this.priceApiClient = priceApiClient;
 		this.geOfferTracker = geOfferTracker;
 		this.flipHistory = flipHistory;
-		this.config = config;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -50,7 +44,7 @@ public class DMMFlipperPanel extends PluginPanel
 		JPanel titlePanel = new JPanel(new GridLayout(3, 1));
 		titlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-		JLabel titleLabel = new JLabel("DMM Flipper");
+		JLabel titleLabel = new JLabel("DMM Flipper - Active Offers");
 		titleLabel.setForeground(Color.WHITE);
 		titleLabel.setFont(new Font("Arial", Font.BOLD, 16));
 		
@@ -69,325 +63,35 @@ public class DMMFlipperPanel extends PluginPanel
 		headerPanel.add(titlePanel, BorderLayout.WEST);
 
 		refreshButton = new JButton("Refresh");
-		refreshButton.addActionListener(e -> refreshFlips());
+		refreshButton.addActionListener(e -> updateOfferDisplay());
 		headerPanel.add(refreshButton, BorderLayout.EAST);
 
 		add(headerPanel, BorderLayout.NORTH);
 
-		// Main content with tabs
-		JTabbedPane tabbedPane = new JTabbedPane();
-		tabbedPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
-
-		// Best Margin tab
-		opportunitiesPanel = new JPanel();
-		opportunitiesPanel.setLayout(new BoxLayout(opportunitiesPanel, BoxLayout.Y_AXIS));
-		opportunitiesPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		
-		JScrollPane opportunitiesScroll = new JScrollPane(opportunitiesPanel);
-		opportunitiesScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Best Margin", opportunitiesScroll);
-
-		// Active Flipping tab
-		activeFlippingPanel = new JPanel();
-		activeFlippingPanel.setLayout(new BoxLayout(activeFlippingPanel, BoxLayout.Y_AXIS));
-		activeFlippingPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		
-		JScrollPane activeFlippingScroll = new JScrollPane(activeFlippingPanel);
-		activeFlippingScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Active Flip", activeFlippingScroll);
-
-		// Overnight Flipping tab (renamed from Bulk Volume)
-		bulkOpportunitiesPanel = new JPanel();
-		bulkOpportunitiesPanel.setLayout(new BoxLayout(bulkOpportunitiesPanel, BoxLayout.Y_AXIS));
-		bulkOpportunitiesPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		
-		JScrollPane bulkOpportunitiesScroll = new JScrollPane(bulkOpportunitiesPanel);
-		bulkOpportunitiesScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Overnight Flip", bulkOpportunitiesScroll);
-
-		// Active offers tab
-		offersPanel = new JPanel();
+		// Main content - just active offers
+		JPanel offersPanel = new JPanel();
 		offersPanel.setLayout(new BoxLayout(offersPanel, BoxLayout.Y_AXIS));
 		offersPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		
 		JScrollPane offersScroll = new JScrollPane(offersPanel);
 		offersScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Active Offers", offersScroll);
 
-		// Statistics tab
-		statsPanel = new JPanel();
-		statsPanel.setLayout(new BoxLayout(statsPanel, BoxLayout.Y_AXIS));
-		statsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		
-		JScrollPane statsScroll = new JScrollPane(statsPanel);
-		statsScroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabbedPane.addTab("Statistics", statsScroll);
+		add(offersScroll, BorderLayout.CENTER);
 
-		add(tabbedPane, BorderLayout.CENTER);
+		// Store reference for updates
+		this.offersPanel = offersPanel;
 
 		// Initial load
-		refreshFlips();
+		updateOfferDisplay();
 		updateProfitLabels();
 	}
 
-	private void refreshFlips()
-	{
-		SwingUtilities.invokeLater(() -> {
-			refreshButton.setEnabled(false);
-			refreshButton.setText("Loading...");
-		});
 
-		new Thread(() -> {
-			try
-			{
-				List<FlipOpportunity> opportunities = priceApiClient.calculateOpportunities(
-					config.minProfit(),
-					config.minROI(),
-					config.maxROI(),
-					config.maxAge(),
-					config.budget()
-				);
-				
-				List<FlipOpportunity> activeFlippingOpportunities = priceApiClient.calculateActiveFlippingOpportunities(
-					1,
-					25000,
-					config.maxAge(),
-					config.budget()
-				);
-				
-				List<FlipOpportunity> bulkOpportunities = priceApiClient.calculateBulkOpportunities(
-					config.minProfit(),
-					config.minROI(),
-					config.maxROI(),
-					config.maxAge(),
-					config.budget(),
-					1000
-				);
 
-				SwingUtilities.invokeLater(() -> {
-					updateOpportunitiesDisplay(opportunities);
-					updateActiveFlippingDisplay(activeFlippingOpportunities);
-					updateBulkOpportunitiesDisplay(bulkOpportunities);
-					updateOfferDisplay();
-					updateStatsDisplay();
-					updateProfitLabels();
-					refreshButton.setEnabled(true);
-					refreshButton.setText("Refresh");
-				});
-			}
-			catch (Exception e)
-			{
-				log.error("Error refreshing flips", e);
-				SwingUtilities.invokeLater(() -> {
-					refreshButton.setEnabled(true);
-					refreshButton.setText("Refresh");
-				});
-			}
-		}).start();
-	}
 
-	private void updateOpportunitiesDisplay(List<FlipOpportunity> opportunities)
-	{
-		opportunitiesPanel.removeAll();
 
-		if (opportunities.isEmpty())
-		{
-			JLabel noDataLabel = new JLabel("No flips found. Check your filters.");
-			noDataLabel.setForeground(Color.LIGHT_GRAY);
-			noDataLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
-			opportunitiesPanel.add(noDataLabel);
-		}
-		else
-		{
-			int count = Math.min(20, opportunities.size());
-			for (int i = 0; i < count; i++)
-			{
-				FlipOpportunity opp = opportunities.get(i);
-				opportunitiesPanel.add(createOpportunityPanel(opp));
-			}
-		}
 
-		opportunitiesPanel.revalidate();
-		opportunitiesPanel.repaint();
-	}
 
-	private void updateActiveFlippingDisplay(List<FlipOpportunity> opportunities)
-	{
-		activeFlippingPanel.removeAll();
-
-		if (opportunities.isEmpty())
-		{
-			JLabel noDataLabel = new JLabel("No active flipping opportunities found.");
-			noDataLabel.setForeground(Color.LIGHT_GRAY);
-			noDataLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
-			activeFlippingPanel.add(noDataLabel);
-		}
-		else
-		{
-			int count = Math.min(30, opportunities.size());
-			for (int i = 0; i < count; i++)
-			{
-				FlipOpportunity opp = opportunities.get(i);
-				activeFlippingPanel.add(createActiveFlippingPanel(opp));
-			}
-		}
-
-		activeFlippingPanel.revalidate();
-		activeFlippingPanel.repaint();
-	}
-
-	private void updateBulkOpportunitiesDisplay(List<FlipOpportunity> opportunities)
-	{
-		bulkOpportunitiesPanel.removeAll();
-
-		if (opportunities.isEmpty())
-		{
-			JLabel noDataLabel = new JLabel("No overnight flipping opportunities found.");
-			noDataLabel.setForeground(Color.LIGHT_GRAY);
-			noDataLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
-			bulkOpportunitiesPanel.add(noDataLabel);
-		}
-		else
-		{
-			int count = Math.min(20, opportunities.size());
-			for (int i = 0; i < count; i++)
-			{
-				FlipOpportunity opp = opportunities.get(i);
-				bulkOpportunitiesPanel.add(createBulkOpportunityPanel(opp));
-			}
-		}
-
-		bulkOpportunitiesPanel.revalidate();
-		bulkOpportunitiesPanel.repaint();
-	}
-
-	private JPanel createOpportunityPanel(FlipOpportunity opp)
-	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BorderLayout());
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		JPanel infoPanel = new JPanel(new GridLayout(4, 1));
-		infoPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-
-		JLabel nameLabel = new JLabel(truncateName(opp.getItemName(), 25));
-		nameLabel.setForeground(Color.WHITE);
-		nameLabel.setFont(new Font("Arial", Font.BOLD, 12));
-
-		JLabel profitLabel = new JLabel(String.format("Profit: %s gp", 
-			QuantityFormatter.formatNumber(opp.getProfit())));
-		profitLabel.setForeground(Color.GREEN);
-
-		JLabel priceLabel = new JLabel(String.format("Buy: %s → Sell: %s", 
-			QuantityFormatter.formatNumber(opp.getBuyPrice()),
-			QuantityFormatter.formatNumber(opp.getSellPrice())));
-		priceLabel.setForeground(Color.CYAN);
-
-		JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | Age: %dm",
-			QuantityFormatter.formatNumber(opp.getLimit()),
-			opp.getRoi(),
-			opp.getAgeMinutes()));
-		detailLabel.setForeground(Color.LIGHT_GRAY);
-		detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
-
-		infoPanel.add(nameLabel);
-		infoPanel.add(profitLabel);
-		infoPanel.add(priceLabel);
-		infoPanel.add(detailLabel);
-
-		panel.add(infoPanel, BorderLayout.CENTER);
-
-		return panel;
-	}
-
-	private JPanel createActiveFlippingPanel(FlipOpportunity opp)
-	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BorderLayout());
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		JPanel infoPanel = new JPanel(new GridLayout(4, 1));
-		infoPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-
-		JLabel nameLabel = new JLabel(truncateName(opp.getItemName(), 25));
-		nameLabel.setForeground(Color.WHITE);
-		nameLabel.setFont(new Font("Arial", Font.BOLD, 12));
-
-		int totalVolume = opp.getBuyVolume() + opp.getSellVolume();
-		JLabel profitLabel = new JLabel(String.format("Margin: %s gp | Vol: %s", 
-			QuantityFormatter.formatNumber(opp.getProfit()),
-			QuantityFormatter.formatNumber(totalVolume)));
-		profitLabel.setForeground(Color.GREEN);
-
-		JLabel priceLabel = new JLabel(String.format("Buy: %s → Sell: %s", 
-			QuantityFormatter.formatNumber(opp.getBuyPrice()),
-			QuantityFormatter.formatNumber(opp.getSellPrice())));
-		priceLabel.setForeground(Color.CYAN);
-
-		String freshness = opp.getAgeMinutes() < 2 ? "FRESH" : opp.getAgeMinutes() < 5 ? "Recent" : "Old";
-		Color freshnessColor = opp.getAgeMinutes() < 2 ? Color.GREEN : opp.getAgeMinutes() < 5 ? Color.YELLOW : Color.ORANGE;
-		
-		JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | %s (%dm)",
-			QuantityFormatter.formatNumber(opp.getLimit()),
-			opp.getRoi(),
-			freshness,
-			opp.getAgeMinutes()));
-		detailLabel.setForeground(freshnessColor);
-		detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
-
-		infoPanel.add(nameLabel);
-		infoPanel.add(profitLabel);
-		infoPanel.add(priceLabel);
-		infoPanel.add(detailLabel);
-
-		panel.add(infoPanel, BorderLayout.CENTER);
-
-		return panel;
-	}
-
-	private JPanel createBulkOpportunityPanel(FlipOpportunity opp)
-	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BorderLayout());
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		JPanel infoPanel = new JPanel(new GridLayout(4, 1));
-		infoPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-
-		JLabel nameLabel = new JLabel(truncateName(opp.getItemName(), 25));
-		nameLabel.setForeground(Color.WHITE);
-		nameLabel.setFont(new Font("Arial", Font.BOLD, 12));
-
-		int totalVolume = opp.getBuyVolume() + opp.getSellVolume();
-		JLabel profitLabel = new JLabel(String.format("Margin: %s gp | Vol: %s", 
-			QuantityFormatter.formatNumber(opp.getProfit()),
-			QuantityFormatter.formatNumber(totalVolume)));
-		profitLabel.setForeground(Color.GREEN);
-
-		JLabel priceLabel = new JLabel(String.format("Buy: %s → Sell: %s", 
-			QuantityFormatter.formatNumber(opp.getBuyPrice()),
-			QuantityFormatter.formatNumber(opp.getSellPrice())));
-		priceLabel.setForeground(Color.CYAN);
-
-		JLabel detailLabel = new JLabel(String.format("Limit: %s | ROI: %.1f%% | Age: %dm",
-			QuantityFormatter.formatNumber(opp.getLimit()),
-			opp.getRoi(),
-			opp.getAgeMinutes()));
-		detailLabel.setForeground(Color.LIGHT_GRAY);
-		detailLabel.setFont(new Font("Arial", Font.PLAIN, 10));
-
-		infoPanel.add(nameLabel);
-		infoPanel.add(profitLabel);
-		infoPanel.add(priceLabel);
-		infoPanel.add(detailLabel);
-
-		panel.add(infoPanel, BorderLayout.CENTER);
-
-		return panel;
-	}
 
 	public void updateOfferDisplay()
 	{
@@ -459,38 +163,6 @@ public class DMMFlipperPanel extends PluginPanel
 		return panel;
 	}
 
-	private void updateStatsDisplay()
-	{
-		statsPanel.removeAll();
-
-		List<FlipHistory.CompletedFlip> allFlips = new ArrayList<>();
-		for (List<FlipHistory.CompletedFlip> flips : flipHistory.getCompletedFlips().values())
-		{
-			allFlips.addAll(flips);
-		}
-
-		if (allFlips.isEmpty())
-		{
-			JLabel noDataLabel = new JLabel("No completed flips yet");
-			noDataLabel.setForeground(Color.LIGHT_GRAY);
-			noDataLabel.setBorder(new EmptyBorder(10, 10, 10, 10));
-			statsPanel.add(noDataLabel);
-		}
-		else
-		{
-			allFlips.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
-			
-			int count = Math.min(20, allFlips.size());
-			for (int i = 0; i < count; i++)
-			{
-				FlipHistory.CompletedFlip flip = allFlips.get(i);
-				statsPanel.add(createFlipPanel(flip));
-			}
-		}
-
-		statsPanel.revalidate();
-		statsPanel.repaint();
-	}
 
 	private JPanel createFlipPanel(FlipHistory.CompletedFlip flip)
 	{

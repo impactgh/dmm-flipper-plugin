@@ -54,7 +54,7 @@ public class DMMFlipperPlugin extends Plugin
 		log.info("Exporting GE offers to: {}", offerExporter.getExportPath());
 
 		// Create the panel
-		panel = new DMMFlipperPanel(this, priceApiClient, geOfferTracker, flipHistory, config);
+		panel = new DMMFlipperPanel(this, priceApiClient, geOfferTracker, flipHistory);
 		
 		// Create navigation button
 		BufferedImage icon = null;
