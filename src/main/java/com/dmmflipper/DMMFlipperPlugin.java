@@ -50,7 +50,7 @@ public class DMMFlipperPlugin extends Plugin
 		log.info("DMM Flipper started!");
 
 		// Initialize offer exporter
-		offerExporter = new OfferExporter(geOfferTracker, priceApiClient);
+		offerExporter = new OfferExporter(geOfferTracker, priceApiClient, client);
 		log.info("Exporting GE offers to: {}", offerExporter.getExportPath());
 
 		// Create the panel

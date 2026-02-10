@@ -3,6 +3,8 @@ package com.dmmflipper;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
+import net.runelite.api.Skill;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -39,11 +41,13 @@ public class OfferExporter
 	private final Gson gson;
 	private final GEOfferTracker offerTracker;
 	private final PriceApiClient priceApiClient;
+	private final Client client;
 	
-	public OfferExporter(GEOfferTracker offerTracker, PriceApiClient priceApiClient)
+	public OfferExporter(GEOfferTracker offerTracker, PriceApiClient priceApiClient, Client client)
 	{
 		this.offerTracker = offerTracker;
 		this.priceApiClient = priceApiClient;
+		this.client = client;
 		this.gson = new GsonBuilder().setPrettyPrinting().create();
 		
 		// Ensure export directory exists
@@ -72,6 +76,19 @@ public class OfferExporter
 			Map<String, Object> exportData = new HashMap<>();
 			exportData.put("timestamp", System.currentTimeMillis() / 1000);
 			exportData.put("version", "1.0");
+			
+			// Add smithing level if player is logged in
+			if (client != null && client.getLocalPlayer() != null)
+			{
+				int smithingLevel = client.getRealSkillLevel(Skill.SMITHING);
+				exportData.put("smithingLevel", smithingLevel);
+				log.debug("Exporting smithing level: {}", smithingLevel);
+			}
+			else
+			{
+				// Default to level 1 if not logged in
+				exportData.put("smithingLevel", 1);
+			}
 			
 			List<Map<String, Object>> offersData = new ArrayList<>();
 			for (GEOfferTracker.TrackedOffer offer : activeOffers)
