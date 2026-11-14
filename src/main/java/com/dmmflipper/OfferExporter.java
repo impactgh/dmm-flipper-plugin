@@ -21,7 +21,7 @@ import java.util.Map;
 public class OfferExporter
 {
 	// For container setup - hardcode the WSL path
-	private static final String EXPORT_DIR = "\\\\wsl$\\docker-desktop\\mnt\\docker-desktop-disk\\data\\docker\\volumes\\coder-92acce1f-5a2b-400f-adc3-02bcc0d05833-home\\_data\\.runelite\\dmm-flipper";
+	private static final String EXPORT_DIR = "\\\\wsl$\\docker-desktop\\mnt\\docker-desktop-disk\\data\\docker\\volumes\\coder-8c8720fc-367f-4d7b-b9ad-8487ccb90195-home\\_data\\.runelite\\osrs-hc-flipper";
 	private static final String EXPORT_FILE = EXPORT_DIR + "\\offers.json";
 	
 	// Fallback to default if WSL path doesn't exist
@@ -31,7 +31,7 @@ public class OfferExporter
 			return EXPORT_DIR;
 		}
 		// Fallback to default user home
-		return System.getProperty("user.home") + "\\.runelite\\dmm-flipper";
+		return System.getProperty("user.home") + "\\.runelite\\osrs-hc-flipper";
 	}
 	
 	private static String getExportFile() {
