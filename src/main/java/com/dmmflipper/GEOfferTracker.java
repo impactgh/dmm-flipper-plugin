@@ -104,10 +104,10 @@ public class GEOfferTracker
 		
 		// Calculate profit
 		int quantity = Math.min(buy.getQuantityFilled(), sell.getQuantityFilled());
-		int revenue = sell.getPrice() * quantity;
-		int cost = buy.getPrice() * quantity;
-		int geTax = Math.min((int)(revenue * 0.01), 5_000_000);
-		int profit = revenue - cost - geTax;
+		long revenue = sell.getPrice() * quantity;
+		long cost = buy.getPrice() * quantity;
+		long geTax = Math.min((long) (revenue * 0.01), 5_000_000L);
+		long profit = revenue - cost - geTax;
 
 		// Get item name
 		ItemInfo itemInfo = priceApiClient.getItemInfo(itemId);
@@ -186,7 +186,7 @@ public class GEOfferTracker
 		private int itemId;
 		private int quantity;
 		private int quantityFilled;
-		private int price;
+		private long price;
 		private boolean buying;
 		private long timestamp;
 

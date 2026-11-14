@@ -200,8 +200,8 @@ public class DMMFlipperPanel extends PluginPanel
 
 	public void updateProfitLabels()
 	{
-		int sessionProfit = flipHistory.getSessionProfit();
-		int totalProfit = flipHistory.getTotalProfit();
+		long sessionProfit = flipHistory.getSessionProfit();
+		long totalProfit = flipHistory.getTotalProfit();
 
 		sessionProfitLabel.setText(String.format("Session: %s gp", QuantityFormatter.formatNumber(sessionProfit)));
 		totalProfitLabel.setText(String.format("Total: %s gp", QuantityFormatter.formatNumber(totalProfit)));

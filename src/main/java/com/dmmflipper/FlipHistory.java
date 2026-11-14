@@ -11,7 +11,7 @@ public class FlipHistory
 	private final Map<Integer, List<CompletedFlip>> completedFlips = new HashMap<>();
 	private final Map<Integer, MarginCheck> marginChecks = new HashMap<>();
 	private long sessionStartTime = System.currentTimeMillis();
-	private int sessionProfit = 0;
+	private long sessionProfit = 0;
 
 	public void addCompletedFlip(CompletedFlip flip)
 	{
@@ -19,7 +19,7 @@ public class FlipHistory
 		sessionProfit += flip.getProfit();
 	}
 
-	public void addMarginCheck(int itemId, int buyPrice, int sellPrice)
+	public void addMarginCheck(int itemId, long buyPrice, long sellPrice)
 	{
 		MarginCheck check = new MarginCheck(itemId, buyPrice, sellPrice, System.currentTimeMillis());
 		marginChecks.put(itemId, check);
@@ -35,15 +35,15 @@ public class FlipHistory
 		return completedFlips.getOrDefault(itemId, new ArrayList<>());
 	}
 
-	public int getTotalProfit()
+	public long getTotalProfit()
 	{
 		return completedFlips.values().stream()
 			.flatMap(List::stream)
-			.mapToInt(CompletedFlip::getProfit)
+			.mapToLong(CompletedFlip::getProfit)
 			.sum();
 	}
 
-	public int getSessionProfit()
+	public long getSessionProfit()
 	{
 		return sessionProfit;
 	}
@@ -66,12 +66,12 @@ public class FlipHistory
 	{
 		private final int itemId;
 		private final String itemName;
-		private final int buyPrice;
-		private final int sellPrice;
+		private final long buyPrice;
+		private final long sellPrice;
 		private final int quantity;
-		private final int profit;
+		private final long profit;
 		private final long timestamp;
-		private final int geTax;
+		private final long geTax;
 
 		public double getRoi()
 		{
@@ -83,11 +83,11 @@ public class FlipHistory
 	public static class MarginCheck
 	{
 		private final int itemId;
-		private final int buyPrice;
-		private final int sellPrice;
+		private final long buyPrice;
+		private final long sellPrice;
 		private final long timestamp;
 
-		public int getMargin()
+		public long getMargin()
 		{
 			return sellPrice - buyPrice;
 		}
