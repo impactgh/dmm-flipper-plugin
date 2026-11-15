@@ -18,7 +18,7 @@ dependencies {
 	compileOnly 'org.projectlombok:lombok:1.18.30'
 	annotationProcessor 'org.projectlombok:lombok:1.18.30'
 
-	testImplementation 'junit:junit:4.12'
+	testImplementation 'junit:junit:4.13.2'
 	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
 	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
 }
@@ -41,4 +41,18 @@ tasks.register('run', JavaExec) { JavaExec it ->
 	
 	jvmArgs '-ea'
 	args '--developer-mode', '--debug'
+}
+
+tasks.named('test') {
+	systemProperty 'java.awt.headless', 'true'
+}
+
+// Runs DMM Flipper AND Harbourmaster together in one dev-mode client
+tasks.register('runCombined', JavaExec) {
+	group = 'runelite'
+	description = 'Run the RuneLite client with DMM Flipper and Harbourmaster'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.dmmflipper.CombinedLauncher'
+	jvmArgs '-ea'
+	args '--developer-mode', '--debug', '--profile=Dev'
 }

@@ -1,0 +1,703 @@
+package com.harbourmaster;
+
+import com.google.gson.Gson;
+import com.google.inject.Provides;
+import com.harbourmaster.data.BoatSize;
+import com.harbourmaster.data.CharterRoutes;
+import com.harbourmaster.data.PortGraph;
+import com.harbourmaster.data.PortTaskCatalog;
+import com.harbourmaster.data.SailingDangers;
+import com.harbourmaster.data.SailingObstacles;
+import com.harbourmaster.data.SailingPathfinder;
+import com.harbourmaster.data.SailingRouteCache;
+import com.harbourmaster.model.ActiveTask;
+import com.harbourmaster.model.CourierPlan;
+import com.harbourmaster.model.CourierTask;
+import com.harbourmaster.model.DockChecklist;
+import com.harbourmaster.model.DockGuidance;
+import com.harbourmaster.model.HarbourmasterSnapshot;
+import com.harbourmaster.model.Port;
+import com.harbourmaster.model.RoutePlan;
+import com.harbourmaster.model.TravelContext;
+import com.harbourmaster.model.TravelStep;
+import com.harbourmaster.optimizer.CourierCyclePlanner;
+import com.harbourmaster.optimizer.RouteOptimizer;
+import com.harbourmaster.overlay.CargoOverlay;
+import com.harbourmaster.overlay.DockOverlay;
+import com.harbourmaster.overlay.MinimapRouteOverlay;
+import com.harbourmaster.overlay.NavigationOverlay;
+import com.harbourmaster.overlay.NoticeboardOverlay;
+import com.harbourmaster.overlay.RouteStatusOverlay;
+import com.harbourmaster.overlay.WorldMapRouteOverlay;
+import com.harbourmaster.tracker.ActiveTaskTracker;
+import com.harbourmaster.tracker.CargoTracker;
+import com.harbourmaster.tracker.GuidanceActivityTracker;
+import com.harbourmaster.tracker.NoticeboardTracker;
+import com.harbourmaster.tracker.OfferCycleTracker;
+import com.harbourmaster.tracker.PortTracker;
+import com.harbourmaster.tracker.RouteTracker;
+import com.harbourmaster.tracker.TravelTracker;
+import java.time.Clock;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import javax.inject.Inject;
+import net.runelite.api.Client;
+import net.runelite.api.GameState;
+import net.runelite.api.IndexDataBase;
+import net.runelite.api.Skill;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.GameObjectDespawned;
+import net.runelite.api.events.GameObjectSpawned;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GroundObjectDespawned;
+import net.runelite.api.events.GroundObjectSpawned;
+import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.events.WorldViewUnloaded;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.callback.ClientThread;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@PluginDescriptor(
+        name = "Harbourmaster",
+        description = "Optimizes Sailing courier routes and suggests tasks, with cargo and dock guidance",
+        tags = {"sailing", "port", "courier", "cargo", "tasks", "route", "optimizer", "navigation"})
+public class HarbourmasterPlugin extends Plugin {
+    private static final Logger LOGGER = LoggerFactory.getLogger(HarbourmasterPlugin.class);
+
+    @Inject
+    private Client client;
+
+    @Inject
+    private Gson gson;
+
+    @Inject
+    private ClientThread clientThread;
+
+    @Inject
+    private HarbourmasterConfig config;
+
+    @Inject
+    private PortTaskCatalog catalog;
+
+    @Inject
+    private OverlayManager overlayManager;
+
+    @Inject
+    private NoticeboardOverlay noticeboardOverlay;
+
+    @Inject
+    private DockOverlay dockOverlay;
+
+    @Inject
+    private CargoOverlay cargoOverlay;
+
+    @Inject
+    private NavigationOverlay navigationOverlay;
+
+    @Inject
+    private MinimapRouteOverlay minimapOverlay;
+
+    @Inject
+    private WorldMapRouteOverlay worldMapOverlay;
+
+    @Inject
+    private RouteStatusOverlay statusOverlay;
+
+    private final ActiveTaskTracker activeTasks = new ActiveTaskTracker();
+    private final NoticeboardTracker noticeboard = new NoticeboardTracker();
+    private final PortTracker ports = new PortTracker();
+    private final CargoTracker cargo = new CargoTracker();
+    private final GuidanceActivityTracker guidanceActivity = new GuidanceActivityTracker();
+    private Clock clock = Clock.systemUTC();
+    private volatile boolean guidanceActive;
+    private PortGraph portGraph;
+    private RouteTracker routeTracker;
+    private CourierCyclePlanner cyclePlanner;
+    private final OfferCycleTracker offerCycles = new OfferCycleTracker();
+    private long offerAccountHash;
+    private final TravelTracker travelTracker = new TravelTracker();
+    private TravelContext travelContext;
+    private Port planStart;
+
+    private volatile HarbourmasterSnapshot snapshot = HarbourmasterSnapshot.empty();
+    private volatile boolean running;
+    private List<Object> previousInputs;
+    private List<Object> previousPlanInputs;
+    private CourierPlan previousCourierPlan;
+    private CourierPlanRequest previousPlanRequest;
+    private ExecutorService plannerExecutor;
+    private Future<?> planningTask;
+    private volatile boolean optimizerInitializing;
+    private volatile CourierPlanRequest pendingPlanRequest;
+
+    @Provides
+    HarbourmasterConfig provideConfig(ConfigManager manager) {
+        return manager.getConfig(HarbourmasterConfig.class);
+    }
+
+    @Override
+    protected void startUp() {
+        running = true;
+        plannerExecutor = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "harbourmaster-planner");
+            thread.setDaemon(true);
+            return thread;
+        });
+        for (Overlay overlay : overlays()) {
+            overlayManager.add(overlay);
+        }
+        clientThread.invokeLater(() -> {
+            if (running && client.getGameState() == GameState.LOGGED_IN) {
+                ports.scanScene(client);
+                refresh();
+            }
+        });
+    }
+
+    @Override
+    protected void shutDown() {
+        running = false;
+        for (Overlay overlay : overlays()) {
+            overlayManager.remove(overlay);
+        }
+        plannerExecutor.shutdownNow();
+        clientThread.invokeLater(() -> {
+            clearSession();
+            offerCycles.clear();
+        });
+    }
+
+    private List<Overlay> overlays() {
+        return List.of(
+                noticeboardOverlay,
+                dockOverlay,
+                cargoOverlay,
+                navigationOverlay,
+                minimapOverlay,
+                worldMapOverlay,
+                statusOverlay);
+    }
+
+    @Subscribe
+    public void onGameTick(GameTick event) {
+        if (running) {
+            refresh();
+        }
+    }
+
+    @Subscribe
+    public void onMenuOptionClicked(MenuOptionClicked event) {
+        Widget details = client.getWidget(InterfaceID.PortTaskInfo.WINDOW);
+        if (noticeboard.isOpen() && (details == null || details.isHidden())) {
+            noticeboard.beginOpeningDetails(event.getWidget());
+        }
+    }
+
+    @Subscribe
+    public void onGameStateChanged(GameStateChanged event) {
+        if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
+            clearSession();
+        } else if (event.getGameState() == GameState.LOGGED_IN) {
+            ports.scanScene(client);
+            initializeOptimizer();
+        }
+    }
+
+    @Subscribe
+    public void onGameObjectSpawned(GameObjectSpawned event) {
+        ports.add(event.getGameObject());
+    }
+
+    @Subscribe
+    public void onGameObjectDespawned(GameObjectDespawned event) {
+        ports.remove(event.getGameObject());
+    }
+
+    @Subscribe
+    public void onGroundObjectSpawned(GroundObjectSpawned event) {
+        ports.add(event.getGroundObject());
+    }
+
+    @Subscribe
+    public void onGroundObjectDespawned(GroundObjectDespawned event) {
+        ports.remove(event.getGroundObject());
+    }
+
+    @Subscribe
+    public void onWorldViewUnloaded(WorldViewUnloaded event) {
+        ports.unload(event.getWorldView());
+    }
+
+    @Subscribe
+    public void onConfigChanged(ConfigChanged event) {
+        if (!"harbourmaster".equals(event.getGroup())) {
+            return;
+        }
+        clientThread.invokeLater(() -> {
+            previousInputs = null;
+            if (running) {
+                refresh();
+            }
+        });
+    }
+
+    private void clearSession() {
+        guidanceActivity.clear();
+        guidanceActive = false;
+        ports.clear();
+        travelTracker.clear();
+        travelContext = null;
+        noticeboard.clear();
+        clearPlan();
+        previousInputs = null;
+        snapshot = HarbourmasterSnapshot.empty();
+    }
+
+    private void clearPlan() {
+        pendingPlanRequest = null;
+        if (planningTask != null) {
+            planningTask.cancel(true);
+            planningTask = null;
+        }
+        if (routeTracker != null) {
+            portGraph.clearMissingRoutes();
+            routeTracker.clear();
+        }
+        previousPlanInputs = null;
+        previousCourierPlan = null;
+        previousPlanRequest = null;
+    }
+
+    private void refresh() {
+        if (client.getGameState() != GameState.LOGGED_IN) {
+            return;
+        }
+        long accountHash = client.getAccountHash();
+        if (accountHash != offerAccountHash) {
+            offerCycles.clear();
+            offerAccountHash = accountHash;
+        }
+        if (portGraph == null) {
+            initializeOptimizer();
+            return;
+        }
+        if (!catalog.isLoaded()) {
+            catalog.load(client);
+        }
+        noticeboard.scan(client, catalog);
+        ports.update(client, noticeboard.isOpen() ? noticeboard.getPort() : null);
+        List<ActiveTask> held = activeTasks.read(
+                client::getVarbitValue, client::getVarpValue, catalog::byId, catalog::isIgnoredTask, ports.getStart());
+        TravelContext availableTravel =
+                config.useTeleports() ? travelTracker.read(client, held, config, ports.getDock()) : null;
+        boolean leavingDock = travelContext != null
+                && availableTravel != null
+                && travelContext.boat == availableTravel.boat
+                && travelContext.boatPort != null
+                && availableTravel.boatPort == null
+                && availableTravel.aboard
+                && snapshot.sailingNext();
+        if (!java.util.Objects.equals(travelContext, availableTravel)) {
+            if (!leavingDock) {
+                clearPlan();
+            }
+            travelContext = availableTravel;
+        }
+        BoatSize routeBoatSize =
+                travelContext != null && travelContext.boatSize != null ? travelContext.boatSize : ports.getBoatSize();
+        if (portGraph.setBoatSize(routeBoatSize)) {
+            clearPlan();
+            previousInputs = null;
+        }
+        if (portGraph.setDangerAvoidance(
+                SailingDangers.load(),
+                config.avoidDangerousRoutes()
+                        ? travelTracker.damageReduction(client, travelContext, routeBoatSize)
+                        : -1)) {
+            clearPlan();
+            previousInputs = null;
+        }
+        planStart = travelContext == null ? ports.getStart() : travelTracker.playerPort(client, ports, travelContext);
+        if (portGraph.setShortcuts(travelTracker.shortcutsAvailable(client, travelContext))) {
+            clearPlan();
+            previousInputs = null;
+        }
+        boolean atBoatOrDock = ports.getDock() != null
+                || client.getLocalPlayer() != null
+                        && !client.getLocalPlayer().getWorldView().isTopLevel();
+        guidanceActive = guidanceActivity.update(
+                        !held.isEmpty() && atBoatOrDock,
+                        noticeboard.isOpen() || noticeboard.isDetailsOpen() || noticeboard.isOpeningDetails(),
+                        clock.instant())
+                && (travelContext != null || atBoatOrDock);
+        int completedTasks = client.getVarbitValue(VarbitID.PORT_TASKS_COMPLETED_TODAY);
+        offerCycles.observe(
+                completedTasks,
+                noticeboard.isOpen() ? ports.getStart() : null,
+                noticeboard.isOpen() ? noticeboard.getOffers() : List.of(),
+                OfferCycleTracker.resetDay(clock.instant()));
+        if (noticeboard.isDetailsOpen() || noticeboard.isOpeningDetails()) {
+            return;
+        }
+        Map<Integer, CargoTracker.Destination> destinations = cargo.destinations(held, ports.getDock());
+        boolean depositCargo = cargo.needsDeposit(client, destinations, ports.getDock());
+        int level = client.getRealSkillLevel(Skill.SAILING);
+        int capacity = Math.min(5, 1 + client.getVarbitValue(VarbitID.PORT_TASK_EXTRA_SLOTS_UNLOCKED));
+        int freeSlots = Math.max(0, capacity - activeTasks.occupiedSlots(client::getVarbitValue));
+        Map<Port, List<CourierTask>> observedOffers = offerCycles.offers();
+        List<Object> inputs = Arrays.asList(
+                held,
+                noticeboard.getOffers(),
+                noticeboard.getPort(),
+                noticeboard.isOpen(),
+                planStart,
+                ports.getBoatPosition(),
+                ports.getDock(),
+                routeBoatSize,
+                level,
+                freeSlots,
+                depositCargo,
+                config.enableOptimizer(),
+                config.rankOffers(),
+                completedTasks,
+                observedOffers,
+                travelContext);
+        if (inputs.equals(previousInputs)) {
+            return;
+        }
+        previousInputs = inputs;
+        RoutePlan route;
+        CourierPlan courierPlan;
+        if (config.enableOptimizer()) {
+            courierPlan =
+                    updatePlan(held, observedOffers, level, freeSlots, offerCycles.tasksUntilReset(), leavingDock);
+            route = courierPlan == null ? RoutePlan.empty() : courierPlan.route;
+        } else {
+            clearPlan();
+            route = RoutePlan.unavailable("Route optimiser disabled");
+            courierPlan = null;
+        }
+        snapshot = new HarbourmasterSnapshot(
+                true,
+                route,
+                noticeboard.isOpen(),
+                freeSlots,
+                DockChecklist.at(ports.getDock(), held),
+                destinations,
+                depositCargo,
+                courierPlan);
+    }
+
+    private CourierPlan updatePlan(
+            List<ActiveTask> held,
+            Map<Port, List<CourierTask>> observedOffers,
+            int level,
+            int freeSlots,
+            int tasksUntilReset,
+            boolean leavingDock) {
+        List<Object> inputs = Arrays.asList(
+                held,
+                observedOffers,
+                level,
+                freeSlots,
+                planStart,
+                ports.getBoatSize(),
+                config.rankOffers(),
+                tasksUntilReset);
+        if (!inputs.equals(previousPlanInputs)
+                || leavingDock
+                || pendingPlanRequest != null
+                        && pendingPlanRequest.boatPosition != null
+                        && ports.getBoatPosition() == null) {
+            CourierPlan routeToUpdate = leavingDock && pendingPlanRequest == null && inputs.equals(previousPlanInputs)
+                    ? previousCourierPlan
+                    : null;
+            previousPlanInputs = inputs;
+            requestPlan(held, observedOffers, level, freeSlots, tasksUntilReset, routeToUpdate);
+        }
+        if (previousCourierPlan == null || pendingPlanRequest != null) {
+            return previousPlanRequest != null
+                            && previousPlanRequest.held.equals(held)
+                            && previousPlanRequest.tasksUntilReset == tasksUntilReset
+                    ? previousCourierPlan
+                    : null;
+        }
+
+        if (!previousCourierPlan.available) {
+            if (!java.util.Objects.equals(previousPlanRequest.boatPosition, ports.getBoatPosition())) {
+                requestPlan(held, observedOffers, level, freeSlots, tasksUntilReset, null);
+            }
+            return previousCourierPlan;
+        }
+
+        if (travelContext != null
+                && (ports.getBoatPosition() == null
+                        || previousCourierPlan.route.legs.stream()
+                                .findFirst()
+                                .map(leg -> leg.steps.stream()
+                                        .anyMatch(step -> step.kind != TravelStep.Kind.SAIL
+                                                && step.kind != TravelStep.Kind.PORTAL))
+                                .orElse(true))) {
+            return previousCourierPlan;
+        }
+        CourierPlan plan = travelContext == null && previousCourierPlan.selectedOffers.isEmpty()
+                ? cyclePlanner.withRoute(
+                        previousCourierPlan, routeTracker.update(planStart, ports.getBoatPosition(), held))
+                : cyclePlanner.relocate(previousCourierPlan, planStart, ports.getBoatPosition());
+        if (portGraph.hasMissingRoutes()) {
+            portGraph.clearMissingRoutes();
+            requestPlan(
+                    held,
+                    observedOffers,
+                    level,
+                    freeSlots,
+                    tasksUntilReset,
+                    previousCourierPlan.available ? previousCourierPlan : null);
+            return previousCourierPlan;
+        }
+        if (plan.available) {
+            previousCourierPlan = plan;
+        }
+        return plan;
+    }
+
+    private void initializeOptimizer() {
+        if (portGraph != null || optimizerInitializing) {
+            return;
+        }
+        optimizerInitializing = true;
+        plannerExecutor.execute(() -> {
+            SailingPathfinder.prepareMasks();
+            SailingObstacles.load();
+            SailingDangers.load();
+            CharterRoutes.getMethods();
+            SailingRouteCache[] routeCaches = Arrays.stream(BoatSize.values())
+                    .map(boatSize -> SailingRouteCache.load(boatSize, gson))
+                    .toArray(SailingRouteCache[]::new);
+            clientThread.invokeLater(() -> {
+                optimizerInitializing = false;
+                if (!running || client.getGameState() != GameState.LOGGED_IN) {
+                    return;
+                }
+                IndexDataBase mapIndex = client.getIndex(SailingPathfinder.MAP_INDEX_ID);
+                portGraph = new PortGraph(new SailingPathfinder(mapIndex, task -> clientThread.invokeLater(task)));
+                for (SailingRouteCache routeCache : routeCaches) {
+                    routeCache.applyTo(portGraph);
+                }
+                RouteOptimizer optimizer = new RouteOptimizer(portGraph);
+                routeTracker = new RouteTracker(optimizer);
+                cyclePlanner = new CourierCyclePlanner(optimizer);
+                previousInputs = null;
+                refresh();
+            });
+        });
+    }
+
+    private void requestPlan(
+            List<ActiveTask> held,
+            Map<Port, List<CourierTask>> observedOffers,
+            int level,
+            int freeSlots,
+            int tasksUntilReset,
+            CourierPlan routeToUpdate) {
+        CourierPlanRequest request = new CourierPlanRequest(
+                planStart,
+                ports.getBoatPosition(),
+                held,
+                config.rankOffers() ? observedOffers : Map.of(),
+                level,
+                freeSlots,
+                tasksUntilReset,
+                routeToUpdate,
+                config.rankOffers() ? retainedOffers(held, observedOffers, level, tasksUntilReset) : List.of(),
+                travelContext);
+        if (planningTask != null) {
+            planningTask.cancel(true);
+        }
+        pendingPlanRequest = request;
+        PortGraph routeSnapshot = portGraph.detachedSnapshot(request.boatPosition);
+        planningTask = plannerExecutor.submit(() -> {
+            try {
+                CourierCyclePlanner planner =
+                        new CourierCyclePlanner(new RouteOptimizer(routeSnapshot, request.travel));
+                CourierPlan plan = request.routeToUpdate == null
+                        ? planner.plan(
+                                request.start,
+                                request.boatPosition,
+                                request.held,
+                                request.observedOffers,
+                                request.sailingLevel,
+                                request.freeSlots,
+                                request.tasksUntilReset,
+                                request.retainedOffers)
+                        : planner.relocate(request.routeToUpdate, request.start, request.boatPosition);
+                clientThread.invokeLater(() -> publishPlan(request, routeSnapshot, plan));
+            } catch (CancellationException ignored) {
+                // A newer request or clearing the plan cancelled this calculation.
+            } catch (RuntimeException exception) {
+                clientThread.invokeLater(() -> failPlan(request, exception));
+            }
+        });
+    }
+
+    private List<CourierTask> retainedOffers(
+            List<ActiveTask> held, Map<Port, List<CourierTask>> observedOffers, int level, int tasksUntilReset) {
+        if (previousPlanRequest == null
+                || previousCourierPlan == null
+                || previousPlanRequest.sailingLevel != level
+                || previousPlanRequest.tasksUntilReset != tasksUntilReset) {
+            return List.of();
+        }
+        for (Map.Entry<Port, List<CourierTask>> board : observedOffers.entrySet()) {
+            if (!previousPlanRequest
+                    .observedOffers
+                    .getOrDefault(board.getKey(), List.of())
+                    .containsAll(board.getValue())) {
+                return List.of();
+            }
+        }
+        for (ActiveTask task : held) {
+            if (previousPlanRequest.held.stream().noneMatch(previous -> previous.taskId == task.taskId)
+                    && previousCourierPlan.selectedOffers.stream().noneMatch(offer -> offer.id == task.taskId)) {
+                return List.of();
+            }
+        }
+        return previousCourierPlan.selectedOffers;
+    }
+
+    private void publishPlan(CourierPlanRequest request, PortGraph routeSnapshot, CourierPlan plan) {
+        if (!running || pendingPlanRequest != request) {
+            return;
+        }
+        portGraph.mergeComputedRoutes(routeSnapshot);
+        if (request.routeToUpdate == null) {
+            if (request.travel == null && plan.selectedOffers.isEmpty()) {
+                routeTracker.update(request.start, request.boatPosition, request.held);
+            }
+            previousCourierPlan = plan;
+            previousPlanRequest = request;
+        } else if (plan.available) {
+            previousCourierPlan = plan;
+        }
+        pendingPlanRequest = null;
+        previousInputs = null;
+        refresh();
+    }
+
+    private void failPlan(CourierPlanRequest request, RuntimeException exception) {
+        if (!running || pendingPlanRequest != request) {
+            return;
+        }
+        LOGGER.error("Unable to calculate a courier plan", exception);
+        pendingPlanRequest = null;
+        previousInputs = null;
+        refresh();
+    }
+
+    private static final class CourierPlanRequest {
+        private final Port start;
+        private final WorldPoint boatPosition;
+        private final List<ActiveTask> held;
+        private final Map<Port, List<CourierTask>> observedOffers;
+        private final int sailingLevel;
+        private final int freeSlots;
+        private final int tasksUntilReset;
+        private final CourierPlan routeToUpdate;
+        private final List<CourierTask> retainedOffers;
+        private final TravelContext travel;
+
+        private CourierPlanRequest(
+                Port start,
+                WorldPoint boatPosition,
+                List<ActiveTask> held,
+                Map<Port, List<CourierTask>> observedOffers,
+                int sailingLevel,
+                int freeSlots,
+                int tasksUntilReset,
+                CourierPlan routeToUpdate,
+                List<CourierTask> retainedOffers,
+                TravelContext travel) {
+            this.start = start;
+            this.boatPosition = boatPosition;
+            this.held = held;
+            this.observedOffers = observedOffers;
+            this.sailingLevel = sailingLevel;
+            this.freeSlots = freeSlots;
+            this.tasksUntilReset = tasksUntilReset;
+            this.routeToUpdate = routeToUpdate;
+            this.retainedOffers = retainedOffers;
+            this.travel = travel;
+        }
+    }
+
+    public HarbourmasterSnapshot getSnapshot() {
+        return snapshot;
+    }
+
+    public boolean isGuidanceActive() {
+        return running && guidanceActive;
+    }
+
+    public boolean shouldCheckNoticeboard() {
+        HarbourmasterSnapshot state = snapshot;
+        return isGuidanceActive()
+                && !shouldUnloadCargo()
+                && !state.boardOpen
+                && state.freeSlots > 0
+                && state.dock.port != null
+                && state.dock.port.noticeboardObject >= 0
+                && !hasReadNoticeboard(state.dock.port);
+    }
+
+    public boolean shouldUnloadCargo() {
+        return isGuidanceActive()
+                && (travelContext == null || travelContext.aboard)
+                && cargo.needsUnload(client, snapshot.cargo);
+    }
+
+    public DockGuidance getDockGuidance() {
+        if (!isGuidanceActive() || client.getLocalPlayer() == null) {
+            return DockGuidance.NONE;
+        }
+        boolean aboard = !client.getLocalPlayer().getWorldView().isTopLevel();
+        return DockGuidance.next(
+                snapshot,
+                aboard,
+                cargo.carryingDelivery(client, snapshot.cargo),
+                shouldCheckNoticeboard(),
+                shouldUnloadCargo(),
+                aboard && ports.isAtSea());
+    }
+
+    public boolean hasReadNoticeboard(Port port) {
+        return offerCycles.hasObservedOffers(port);
+    }
+
+    public boolean isCalculatingPlan() {
+        return optimizerInitializing || pendingPlanRequest != null;
+    }
+
+    public NoticeboardTracker getNoticeboard() {
+        return noticeboard;
+    }
+
+    public PortTracker getPorts() {
+        return ports;
+    }
+}
